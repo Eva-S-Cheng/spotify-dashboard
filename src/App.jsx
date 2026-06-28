@@ -165,14 +165,15 @@ export default function SpotifyDashboard() {
 
   // ── Handle OAuth callback ──
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
+    const code = sessionStorage.getItem("sp_code");
     if (!code) return;
-
+  
     const verifier = sessionStorage.getItem("sp_verifier");
     const savedId = sessionStorage.getItem("sp_client_id");
     if (!verifier || !savedId) return;
-
+  
+    sessionStorage.removeItem("sp_code");
+  
     (async () => {
       setLoading(true);
       try {
@@ -183,7 +184,7 @@ export default function SpotifyDashboard() {
             client_id: savedId,
             grant_type: "authorization_code",
             code,
-            redirect_uri: REDIRECT_URI,
+            redirect_uri: "https://eva-s-cheng.github.io/spotify-dashboard/",
             code_verifier: verifier,
           }),
         });
@@ -191,12 +192,11 @@ export default function SpotifyDashboard() {
         if (json.access_token) {
           setToken(json.access_token);
           localStorage.setItem("sp_client_id", savedId);
-          window.history.replaceState({}, "", window.location.pathname);
         } else {
-          setError("Erreur token: " + JSON.stringify(json));
+          setError("Erreur: " + JSON.stringify(json));
         }
       } catch (e) {
-        setError("Erreur réseau lors de l'authentification.");
+        setError("Erreur réseau: " + e.message);
       } finally {
         setLoading(false);
       }
