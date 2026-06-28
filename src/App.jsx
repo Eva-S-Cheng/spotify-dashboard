@@ -167,7 +167,6 @@ export default function SpotifyDashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    console.log("CODE TROUVÉ:", code);
     if (!code) return;
 
     const verifier = sessionStorage.getItem("sp_verifier");
@@ -194,7 +193,7 @@ export default function SpotifyDashboard() {
           localStorage.setItem("sp_client_id", savedId);
           window.history.replaceState({}, "", window.location.pathname);
         } else {
-          setError("Token invalide. Vérifie ton Client ID et l'URI de redirection.");
+          setError("Erreur token: " + JSON.stringify(json));
         }
       } catch (e) {
         setError("Erreur réseau lors de l'authentification.");
