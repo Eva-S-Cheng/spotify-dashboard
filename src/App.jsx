@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, Cell, PieChart, Pie } from "recharts";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const REDIRECT_URI = window.location.origin + window.location.pathname;
+const REDIRECT_URI = "https://eva-s-cheng.github.io/spotify-dashboard/";
 const SCOPES = [
   "user-top-read",
   "user-read-recently-played",
