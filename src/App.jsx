@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, Cell, PieChart, Pie } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from "recharts";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const REDIRECT_URI = "https://eva-s-cheng.github.io/spotify-dashboard/";
@@ -126,9 +126,9 @@ function RecentRow({ item }) {
   const playedAt = new Date(item.played_at);
   const timeAgo = (() => {
     const diff = (Date.now() - playedAt) / 1000;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+    return `${Math.floor(diff / 86400)}j`;
   })();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12,
@@ -156,26 +156,34 @@ function RecentRow({ item }) {
 export default function SpotifyDashboard() {
   const [clientId, setClientId] = useState(() => localStorage.getItem("sp_client_id") || "");
   const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // START TRUE — check for code on mount
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [timeRange, setTimeRange] = useState("medium_term");
   const [activeTab, setActiveTab] = useState("artists");
-  const [setupStep, setSetupStep] = useState("input"); // input | guide
+  const [setupStep, setSetupStep] = useState("input");
 
-  // ── Handle OAuth callback ──
+  // ── Handle OAuth callback on mount ──
   useEffect(() => {
     const code = sessionStorage.getItem("sp_code");
-    if (!code) return;
-  
+
+    if (!code) {
+      setLoading(false);
+      return;
+    }
+
     const verifier = sessionStorage.getItem("sp_verifier");
     const savedId = sessionStorage.getItem("sp_client_id");
-    if (!verifier || !savedId) return;
-  
+
+    if (!verifier || !savedId) {
+      setLoading(false);
+      return;
+    }
+
+    // Remove code immediately so it's not reused
     sessionStorage.removeItem("sp_code");
-  
+
     (async () => {
-      setLoading(true);
       try {
         const res = await fetch("https://accounts.spotify.com/api/token", {
           method: "POST",
@@ -184,7 +192,7 @@ export default function SpotifyDashboard() {
             client_id: savedId,
             grant_type: "authorization_code",
             code,
-            redirect_uri: "https://eva-s-cheng.github.io/spotify-dashboard/",
+            redirect_uri: REDIRECT_URI,
             code_verifier: verifier,
           }),
         });
@@ -193,22 +201,24 @@ export default function SpotifyDashboard() {
           setToken(json.access_token);
           localStorage.setItem("sp_client_id", savedId);
         } else {
-          setError("Erreur: " + JSON.stringify(json));
+          setError("Erreur Spotify: " + (json.error_description || json.error));
+          setLoading(false);
         }
       } catch (e) {
         setError("Erreur réseau: " + e.message);
-      } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  // ── Fetch Spotify data ──
+  // ── Fetch Spotify data when token is available ──
   useEffect(() => {
     if (!token) return;
+
+    setLoading(true);
+    setError(null);
+
     (async () => {
-      setLoading(true);
-      setError(null);
       try {
         const [topArtists, topTracks, recent, profile] = await Promise.all([
           fetchSpotify(`/me/top/artists?limit=20&time_range=${timeRange}`, token),
@@ -217,7 +227,6 @@ export default function SpotifyDashboard() {
           fetchSpotify("/me", token),
         ]);
 
-        // Genre aggregation
         const genreCounts = {};
         topArtists.items.forEach(a =>
           a.genres.forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; })
@@ -225,12 +234,20 @@ export default function SpotifyDashboard() {
         const topGenres = Object.entries(genreCounts)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 8)
-          .map(([name, count]) => ({ name: name.length > 18 ? name.slice(0, 16) + "…" : name, count }));
+          .map(([name, count]) => ({
+            name: name.length > 18 ? name.slice(0, 16) + "\u2026" : name,
+            count
+          }));
 
-        setData({ topArtists: topArtists.items, topTracks: topTracks.items,
-          recent: recent.items, topGenres, profile });
+        setData({
+          topArtists: topArtists.items,
+          topTracks: topTracks.items,
+          recent: recent.items,
+          topGenres,
+          profile,
+        });
       } catch (e) {
-        setError("Erreur lors du chargement des données Spotify.");
+        setError("Erreur lors du chargement des données.");
       } finally {
         setLoading(false);
       }
@@ -255,6 +272,41 @@ export default function SpotifyDashboard() {
     window.location.href = url.toString();
   }, [clientId]);
 
+  // ─── LOADING SCREEN ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 16,
+            animation: "spin 1.5s linear infinite" }}>🎵</div>
+          <p style={{ color: C.muted, fontSize: 14 }}>Chargement de tes données…</p>
+        </div>
+        <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+      </div>
+    );
+  }
+
+  // ─── ERROR SCREEN ──────────────────────────────────────────────────────────
+  if (error && !token) {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif",
+        padding: 24 }}>
+        <div style={{ textAlign: "center", maxWidth: 400 }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
+          <p style={{ color: "#FF6B6B", fontSize: 14, marginBottom: 20 }}>{error}</p>
+          <button onClick={() => { setError(null); setToken(null); }}
+            style={{ padding: "12px 24px", background: C.green, border: "none",
+              borderRadius: 50, color: "#000", fontSize: 14, fontWeight: 700,
+              cursor: "pointer" }}>
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ─── SETUP SCREEN ───────────────────────────────────────────────────────────
   if (!token) {
     return (
@@ -262,7 +314,6 @@ export default function SpotifyDashboard() {
         alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif",
         padding: 24 }}>
         <div style={{ maxWidth: 480, width: "100%" }}>
-          {/* Logo area */}
           <div style={{ textAlign: "center", marginBottom: 40 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🎧</div>
             <h1 style={{ color: C.text, fontSize: 28, fontWeight: 700, margin: 0 }}>
@@ -274,7 +325,6 @@ export default function SpotifyDashboard() {
           </div>
 
           <Card>
-            {/* Tabs */}
             <div style={{ display: "flex", gap: 0, marginBottom: 24,
               borderBottom: `1px solid ${C.border}` }}>
               {[["input", "Se connecter"], ["guide", "Comment configurer ?"]].map(([key, label]) => (
@@ -307,7 +357,7 @@ export default function SpotifyDashboard() {
                   }}
                 />
                 <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>
-                  URI de redirection à configurer sur Spotify :{" "}
+                  URI de redirection :{" "}
                   <code style={{ color: C.accent, fontSize: 11 }}>{REDIRECT_URI}</code>
                 </p>
                 <button onClick={handleLogin} disabled={!clientId.trim()}
@@ -320,31 +370,23 @@ export default function SpotifyDashboard() {
                   }}>
                   Connecter avec Spotify →
                 </button>
-                {error && (
-                  <p style={{ color: "#FF6B6B", fontSize: 13, marginTop: 12, textAlign: "center" }}>
-                    {error}
-                  </p>
-                )}
               </div>
             ) : (
               <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.8 }}>
-                {[
-                  ["1", "Va sur", "developer.spotify.com/dashboard", "https://developer.spotify.com/dashboard"],
-                  null,
-                  ["2", "Clique sur", "Create app", null],
-                  null,
-                  ["3", "Remplis :", null, null],
-                ].map((step, i) => step ? (
-                  <p key={i} style={{ margin: "6px 0" }}>
-                    <span style={{ color: C.green, fontWeight: 700 }}>{step[0]}.</span>{" "}
-                    {step[1]}{" "}
-                    {step[2] && (step[3]
-                      ? <a href={step[3]} target="_blank" rel="noreferrer"
-                          style={{ color: C.accent }}>{step[2]}</a>
-                      : <strong style={{ color: C.text }}>{step[2]}</strong>
-                    )}
-                  </p>
-                ) : null)}
+                <p style={{ margin: "6px 0" }}>
+                  <span style={{ color: C.green, fontWeight: 700 }}>1.</span>{" "}
+                  Va sur{" "}
+                  <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer"
+                    style={{ color: C.accent }}>developer.spotify.com/dashboard</a>
+                </p>
+                <p style={{ margin: "6px 0" }}>
+                  <span style={{ color: C.green, fontWeight: 700 }}>2.</span>{" "}
+                  Clique sur <strong style={{ color: C.text }}>Create app</strong>
+                </p>
+                <p style={{ margin: "6px 0" }}>
+                  <span style={{ color: C.green, fontWeight: 700 }}>3.</span>{" "}
+                  Remplis :
+                </p>
                 <div style={{ background: C.surface, borderRadius: 10, padding: 14,
                   margin: "12px 0", fontSize: 12, fontFamily: "monospace" }}>
                   <div><span style={{ color: C.muted }}>Redirect URI :</span>{" "}
@@ -354,7 +396,7 @@ export default function SpotifyDashboard() {
                 </div>
                 <p style={{ margin: "6px 0" }}>
                   <span style={{ color: C.green, fontWeight: 700 }}>4.</span>{" "}
-                  Copie le <strong style={{ color: C.text }}>Client ID</strong> depuis les settings de l'app
+                  Copie le <strong style={{ color: C.text }}>Client ID</strong> depuis les settings
                 </p>
                 <p style={{ margin: "6px 0" }}>
                   <span style={{ color: C.green, fontWeight: 700 }}>5.</span>{" "}
@@ -368,29 +410,28 @@ export default function SpotifyDashboard() {
     );
   }
 
-  // ─── LOADING ────────────────────────────────────────────────────────────────
-  if (loading) {
+  // ─── DASHBOARD (token exists, data may still be loading) ────────────────────
+  if (!data) {
     return (
       <div style={{ background: C.bg, minHeight: "100vh", display: "flex",
         alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 16,
             animation: "spin 1.5s linear infinite" }}>🎵</div>
-          <p style={{ color: C.muted, fontSize: 14 }}>Chargement de tes données…</p>
+          <p style={{ color: C.muted, fontSize: 14 }}>Récupération de tes données Spotify…</p>
+          {error && <p style={{ color: "#FF6B6B", fontSize: 13, marginTop: 12 }}>{error}</p>}
         </div>
         <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
       </div>
     );
   }
 
-  if (!data) return null;
-
   const { topArtists, topTracks, recent, topGenres, profile } = data;
   const avgPopularity = Math.round(topArtists.reduce((s, a) => s + a.popularity, 0) / topArtists.length);
 
   const TIME_LABELS = {
-    short_term: "4 dernières semaines",
-    medium_term: "6 derniers mois",
+    short_term: "4 semaines",
+    medium_term: "6 mois",
     long_term: "Tout le temps",
   };
 
@@ -609,7 +650,7 @@ export default function SpotifyDashboard() {
 
       {/* Footer */}
       <div style={{ textAlign: "center", marginTop: 40, color: C.muted, fontSize: 12 }}>
-        Données via Spotify Web API · 
+        Données via Spotify Web API ·
         <button onClick={() => { setToken(null); setData(null); }}
           style={{ background: "none", border: "none", color: C.muted,
             cursor: "pointer", fontSize: 12, textDecoration: "underline", marginLeft: 4 }}>
