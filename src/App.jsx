@@ -167,6 +167,7 @@ export default function SpotifyDashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    console.log("CODE TROUVÉ:", code);
     if (!code) return;
 
     const verifier = sessionStorage.getItem("sp_verifier");
