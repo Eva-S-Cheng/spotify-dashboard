@@ -8,7 +8,8 @@ const WORLD_TOPO = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.js
 
 function genV(n=128){const c="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,b=>c[b%c.length]).join("")}
 async function genC(v){const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return btoa(String.fromCharCode(...new Uint8Array(d))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"")}
-async function sp(e,t,o={},retries=3){const r=await fetch(`https://api.spotify.com/v1${e}`,{headers:{Authorization:`Bearer ${t}`,"Content-Type":"application/json"},...o});if(r.status===204)return null;if(r.status===429&&retries>0){const ra=parseInt(r.headers.get("Retry-After")||"3",10);await new Promise(res=>setTimeout(res,(Math.min(ra,30)+1)*1000));return sp(e,t,o,retries-1)}if(!r.ok){const err=new Error(`${r.status}`);err.status=r.status;throw err}return r.json()}
+let rlUntil=0;// verrou global de rate-limit (timestamp jusqu'auquel on attend)
+async function sp(e,t,o={},retries=2){const w=rlUntil-Date.now();if(w>0)await new Promise(r=>setTimeout(r,w));const r=await fetch(`https://api.spotify.com/v1${e}`,{headers:{Authorization:`Bearer ${t}`,"Content-Type":"application/json"},...o});if(r.status===204)return null;if(r.status===429){const ra=Math.min(parseInt(r.headers.get("Retry-After")||"5",10),60);rlUntil=Date.now()+(ra+1)*1000;if(retries>0){await new Promise(res=>setTimeout(res,(ra+1)*1000));return sp(e,t,o,retries-1)}const err=new Error("429");err.status=429;throw err}if(!r.ok){const err=new Error(`${r.status}`);err.status=r.status;throw err}return r.json()}
 
 // Title Case par mot : "heavy metal" -> "Heavy Metal", "k-pop" -> "K-Pop", "r&b" -> "R&B"
 function tc(s){return String(s).toLowerCase().replace(/(^|[\s\-/&])([a-z])/g,(m,p1,p2)=>p1+p2.toUpperCase())}
@@ -116,7 +117,8 @@ export default function App(){
   const[albumTks,setAlbumTks]=useState([]);
   const[hov,setHov]=useState(null);
   const[friendCode,setFriendCode]=useState("");const[compatRes,setCompatRes]=useState(null);const[compatErr,setCompatErr]=useState(null);const[copied,setCopied]=useState(false);
-  const pi=useRef(null);
+  const pi=useRef(null);const lastCtx=useRef(null);const tabRef=useRef("overview");
+  useEffect(()=>{tabRef.current=tab},[tab]);
 
   // Toast auto-dismiss
   useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4500);return()=>clearTimeout(t)},[toast]);
@@ -177,10 +179,23 @@ export default function App(){
   },[mb,mbL]);
 
   useEffect(()=>{if(!tok)return;
-    const f=async()=>{try{const p=await sp("/me/player",tok);setPl(p);if(p?.context?.uri){const uri=p.context.uri;const id=uri.split(":")[2];if(p.context.type==="playlist")try{const r=await sp(`/playlists/${id}?fields=name,tracks.total`,tok);setCtxName(r?.name||"")}catch{setCtxName("")}
-    else if(p.context.type==="album")try{const r=await sp(`/albums/${id}?fields=name`,tok);setCtxName(r?.name||"")}catch{setCtxName("")}
-    else setCtxName("")}else setCtxName("")}catch{setPl(null)}sp("/me/player/devices",tok).then(d=>setDevs(d?.devices||[])).catch(()=>{})};
-    f();pi.current=setInterval(f,5000);return()=>clearInterval(pi.current)},[tok]);
+    const f=async()=>{
+      if(document.hidden)return;
+      try{const p=await sp("/me/player",tok,{},0);setPl(p);
+        const uri=p?.context?.uri||null;
+        if(uri!==lastCtx.current){lastCtx.current=uri;
+          if(uri){const id=uri.split(":")[2],ty=p.context.type;
+            try{if(ty==="playlist"){const r=await sp(`/playlists/${id}?fields=name`,tok,{},0);setCtxName(r?.name||"")}
+            else if(ty==="album"){const r=await sp(`/albums/${id}?fields=name`,tok,{},0);setCtxName(r?.name||"")}
+            else setCtxName("")}catch{setCtxName("")}
+          }else setCtxName("");
+        }
+      }catch{}
+      if(tabRef.current==="player"){sp("/me/player/devices",tok,{},0).then(d=>setDevs(d?.devices||[])).catch(()=>{})}
+    };
+    f();pi.current=setInterval(f,15000);
+    const onVis=()=>{if(!document.hidden)f()};document.addEventListener("visibilitychange",onVis);
+    return()=>{clearInterval(pi.current);document.removeEventListener("visibilitychange",onVis)}},[tok]);
 
   useEffect(()=>{const id=pl?.item?.album?.id;if(!id||!tok){setAlbumTks([]);return}let live=true;sp(`/albums/${id}/tracks?limit=50`,tok).then(r=>{if(live)setAlbumTks(r?.items||[])}).catch(()=>{if(live)setAlbumTks([])});return()=>{live=false}},[pl?.item?.album?.id,tok]);
 
