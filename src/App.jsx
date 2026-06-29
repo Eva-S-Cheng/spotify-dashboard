@@ -96,6 +96,7 @@ export default function App(){
   const[pl,setPl]=useState(null);const[devs,setDevs]=useState([]);const[drill,setDrill]=useState(null);
   const[playlists,setPlaylists]=useState([]);
   const[sug,setSug]=useState([]);const[sugL,setSugL]=useState(false);
+  const[customG,setCustomG]=useState("");const[customC,setCustomC]=useState("");const[customRes,setCustomRes]=useState([]);const[customL,setCustomL]=useState(false);
   const pi=useRef(null);
 
   useEffect(()=>{const code=sessionStorage.getItem("sp_code");if(!code){setLd(false);return}const v=sessionStorage.getItem("sp_verifier"),s=sessionStorage.getItem("sp_client_id");if(!v||!s){setLd(false);return}sessionStorage.removeItem("sp_code");(async()=>{try{const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:s,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:v})});const j=await r.json();if(j.access_token){setTok(j.access_token);localStorage.setItem("sp_client_id",s)}else{setErr(j.error_description||j.error);setLd(false)}}catch(e){setErr(e.message);setLd(false)}})()},[]);
@@ -107,9 +108,10 @@ export default function App(){
       sp(`/me/top/tracks?limit=50&offset=0&time_range=${tr}`,tok),
       sp(`/me/top/tracks?limit=49&offset=50&time_range=${tr}`,tok).catch(()=>({items:[]})),
       sp("/me/player/recently-played?limit=50",tok),sp("/me",tok),
-      sp("/me/playlists?limit=50",tok).catch(()=>({items:[]}))]);
+      sp("/me/playlists?limit=50&offset=0",tok).catch(()=>({items:[]}))]);
+    const pls2=await sp("/me/playlists?limit=50&offset=50",tok).catch(()=>({items:[]}));
     const tA=[...(a1.items||[]),...(a2.items||[])],tT=[...(t1.items||[]),...(t2.items||[])],ri=rec.items||[];
-    setPlaylists(pls.items||[]);
+    setPlaylists([...(pls.items||[]),...(pls2.items||[])]);
     const totMin=ri.reduce((s,i)=>s+(i.track?.duration_ms||0),0)/60000;
     const am={};ri.forEach(i=>{const t=i.track;if(!t)return;const d=(t.duration_ms||0)/60000;(t.artists||[]).forEach(a=>{if(!am[a.id])am[a.id]={name:a.name,id:a.id,min:0,plays:0};am[a.id].min+=d;am[a.id].plays++})});
     const abt=Object.values(am).sort((a,b)=>b.min-a.min);
@@ -156,6 +158,17 @@ export default function App(){
   const playArtist=async id=>{try{await sp("/me/player/play",tok,{method:"PUT",body:JSON.stringify({context_uri:`spotify:artist:${id}`})})}catch{}};
   const mkPl=async(n,uris)=>{try{const p=await sp(`/users/${data.prof.id}/playlists`,tok,{method:"POST",body:JSON.stringify({name:n,public:false})});if(p?.id){for(let i=0;i<uris.length;i+=100){await sp(`/playlists/${p.id}/tracks`,tok,{method:"POST",body:JSON.stringify({uris:uris.slice(i,i+100)})});}alert(`Playlist "${n}" créée (${uris.length} titres) !`)}}catch{alert("Erreur")}};
 
+  const customSearch=async()=>{
+    if(!customG)return;setCustomL(true);setCustomRes([]);
+    const known=new Set(data.tA.map(a=>a.name.toLowerCase()));
+    // Find country code from ISO map
+    const cc=customC?Object.entries(ISO).find(([k,v])=>v===customC)?.[0]||null:null;
+    const artists=await searchMBArtists(customG,cc,25);
+    const filtered=artists.filter(a=>!known.has(a.name.toLowerCase()));
+    const enriched=await enrichSuggestionsWithSpotify([{genre:customG,country:customC||null,artists:filtered.slice(0,12)}],tok);
+    setCustomRes(enriched);setCustomL(false);
+  };
+
   const login=useCallback(async()=>{if(!cid.trim())return;const v=genV(),ch=await genC(v);sessionStorage.setItem("sp_verifier",v);sessionStorage.setItem("sp_client_id",cid.trim());const u=new URL("https://accounts.spotify.com/authorize");u.searchParams.set("client_id",cid.trim());u.searchParams.set("response_type","code");u.searchParams.set("redirect_uri",REDIRECT_URI);u.searchParams.set("scope",SCOPES);u.searchParams.set("code_challenge_method","S256");u.searchParams.set("code_challenge",ch);window.location.href=u.toString()},[cid]);
 
   const spin=<style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>;
@@ -170,9 +183,11 @@ export default function App(){
   tA.forEach(a=>{const m=mb[a.id];if(!m)return;(m.genres||[]).forEach(g=>{gc[g]=(gc[g]||0)+1;if(!abg[g])abg[g]=[];abg[g].push(a)});if(m.country){cc[m.country]=(cc[m.country]||0)+1;if(!abc[m.country])abc[m.country]=[];abc[m.country].push(a)}});
   const allGenres=Object.entries(gc).sort((a,b)=>b[1]-a[1]).map(([n,c])=>({name:n,count:c}));
   const allCountries=Object.entries(cc).sort((a,b)=>b[1]-a[1]).map(([n,c])=>({name:n,count:c}));
-  // For pie: top 8 + Autre
-  const pieGenres=allGenres.length>9?[...allGenres.slice(0,8),{name:"Autre",count:allGenres.slice(8).reduce((s,g)=>s+g.count,0)}]:allGenres;
-  const pieCountries=allCountries.length>9?[...allCountries.slice(0,8),{name:"Autre",count:allCountries.slice(8).reduce((s,c)=>s+c.count,0)}]:allCountries;
+  // For pie: show all with count>1, group count==1 as "Autre"
+  const gMain=allGenres.filter(g=>g.count>1),gMinor=allGenres.filter(g=>g.count===1);
+  const pieGenres=gMinor.length>0?[...gMain,{name:"Autre",count:gMinor.length}]:gMain;
+  const cMain=allCountries.filter(c=>c.count>1),cMinor=allCountries.filter(c=>c.count===1);
+  const pieCountries=cMinor.length>0?[...cMain,{name:"Autre",count:cMinor.length}]:cMain;
 
   // Genre per hour
   const gph=hr.map((_,idx)=>{const ht=ri.filter(i=>new Date(i.played_at).getHours()===idx);const hgc={};ht.forEach(i=>(i.track?.artists||[]).forEach(a=>{const m=mb[a.id];if(m)(m.genres||[]).forEach(g=>{hgc[g]=(hgc[g]||0)+1})}));const top=Object.entries(hgc).sort((a,b)=>b[1]-a[1])[0];return{h:`${idx}h`,genre:top?top[0]:"—",nb:hr[idx].nb}});
@@ -202,9 +217,7 @@ export default function App(){
       {tab==="overview"&&<>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:20}}>
           <SC label="Artistes" value={tA.length} icon="🎤" onClick={()=>setTab("artists")} />
-          <SC label="Titres" value={tT.length} icon="🎵" onClick={()=>setTab("tracks")} />
-          <SC label="Temps écouté" value={fmt(totMin)} sub="50 dernières" icon="⏱" onClick={()=>setTab("trends")} />
-          <SC label="Diversité" value={`${diversity}%`} sub="artistes/titres" icon="🎲" onClick={()=>setTab("artists")} />
+          <SC label="Durée moy." value={fmt(avgDur)} sub="par titre" icon="📏" onClick={()=>setTab("tracks")} />
           {allGenres.length>0&&<SC label="Genre #1" value={allGenres[0].name} sub={`${allGenres[0].count} artistes`} icon="🎨" onClick={()=>{if(abg[allGenres[0].name])setDrill({title:`Genre: ${allGenres[0].name}`,artists:abg[allGenres[0].name]})}} />}
           {allCountries.length>0&&<SC label="Pays #1" value={allCountries[0].name} sub={`${allCountries[0].count} artistes`} icon="🌍" onClick={()=>{if(abc[allCountries[0].name])setDrill({title:`Pays: ${allCountries[0].name}`,artists:abc[allCountries[0].name]})}} />}
           <SC label="Genres" value={allGenres.length} icon="🏷" onClick={()=>setTab("genres")} />
@@ -263,6 +276,35 @@ export default function App(){
               </div>)}
             </Card>)}
           </div>
+        </Card>
+        <Card style={{marginTop:16}}>
+          <Lbl>🔍 Recherche personnalisée</Lbl>
+          <p style={{color:C.mut,fontSize:12,marginBottom:12}}>Choisis un genre et/ou un pays pour chercher des artistes que tu ne connais pas encore.</p>
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+            <select value={customG} onChange={e=>setCustomG(e.target.value)} style={{flex:1,minWidth:150,padding:"10px 12px",background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}>
+              <option value="">— Genre —</option>
+              {allGenres.map(g=><option key={g.name} value={g.name}>{g.name} ({g.count})</option>)}
+            </select>
+            <select value={customC} onChange={e=>setCustomC(e.target.value)} style={{flex:1,minWidth:150,padding:"10px 12px",background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}>
+              <option value="">— Tous les pays —</option>
+              {allCountries.map(c=><option key={c.name} value={c.name}>{c.name} ({c.count})</option>)}
+            </select>
+            <button onClick={customSearch} disabled={!customG||customL} style={{padding:"10px 20px",background:customG?C.grn:C.brd,border:"none",borderRadius:8,color:customG?"#000":C.mut,fontSize:12,fontWeight:600,cursor:customG?"pointer":"default"}}>
+              {customL?"⏳…":"Chercher"}
+            </button>
+          </div>
+          {customRes.length>0&&<div>
+            {customRes.map((s,si)=><div key={si}>
+              <div style={{color:C.acc,fontSize:13,fontWeight:600,marginBottom:8}}>{s.genre}{s.country?` · ${s.country}`:""} — {s.artists.length} résultats</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {s.artists.map((a,ai)=><div key={ai} style={{display:"flex",alignItems:"center",gap:10,padding:"8px",background:C.sf,borderRadius:10,cursor:"pointer",border:`1px solid ${C.brd}`}} onClick={()=>{if(a.spotifyId)playArtist(a.spotifyId)}}>
+                  {a.image?<img src={a.image} alt="" style={{width:40,height:40,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:40,height:40,borderRadius:"50%",background:CL[ai%CL.length],display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#000",fontWeight:700}}>{a.name[0]}</div>}
+                  <div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{(a.tags||[]).join(", ")}{a.country?` · ${a.country}`:""}</div></div>
+                  {a.spotifyId&&<span style={{fontSize:12,color:C.grn}}>▶</span>}
+                </div>)}
+              </div>
+            </div>)}
+          </div>}
         </Card>
       </div>}
 
