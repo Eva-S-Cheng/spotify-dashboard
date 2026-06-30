@@ -104,7 +104,7 @@ export default function App(){
   const[hov,setHov]=useState(null);
   const[friendCode,setFriendCode]=useState("");const[compatRes,setCompatRes]=useState(null);const[compatErr,setCompatErr]=useState(null);const[copied,setCopied]=useState(false);
   const[simRes,setSimRes]=useState([]);const[simL,setSimL]=useState(false);
-  const[evoData,setEvoData]=useState(null);const[evoL,setEvoL]=useState(false);
+  const[evoData,setEvoData]=useState(null);const[evoL,setEvoL]=useState(false);const[evoView,setEvoView]=useState("artists");
   const pi=useRef(null);const lastCtx=useRef(null);const tabRef=useRef("overview");
   useEffect(()=>{tabRef.current=tab},[tab]);
 
@@ -119,20 +119,33 @@ export default function App(){
 
   // Chargement principal (dépend de la temporalité)
   useEffect(()=>{if(!tok)return;setLd(true);setErr(null);setLm("Récupération…");(async()=>{try{
+    const isRecent=tr==="recent";
     const[a1,a2,t1,t2,rec,prof]=await Promise.all([
-      sp(`/me/top/artists?limit=50&offset=0&time_range=${tr}`,tok),
-      sp(`/me/top/artists?limit=49&offset=50&time_range=${tr}`,tok).catch(()=>({items:[]})),
-      sp(`/me/top/tracks?limit=50&offset=0&time_range=${tr}`,tok),
-      sp(`/me/top/tracks?limit=49&offset=50&time_range=${tr}`,tok).catch(()=>({items:[]})),
+      isRecent?Promise.resolve({items:[]}):sp(`/me/top/artists?limit=50&offset=0&time_range=${tr}`,tok),
+      isRecent?Promise.resolve({items:[]}):sp(`/me/top/artists?limit=49&offset=50&time_range=${tr}`,tok).catch(()=>({items:[]})),
+      isRecent?Promise.resolve({items:[]}):sp(`/me/top/tracks?limit=50&offset=0&time_range=${tr}`,tok),
+      isRecent?Promise.resolve({items:[]}):sp(`/me/top/tracks?limit=49&offset=50&time_range=${tr}`,tok).catch(()=>({items:[]})),
       sp("/me/player/recently-played?limit=50",tok),sp("/me",tok)]);
-    const tA=[...(a1.items||[]),...(a2.items||[])],tT=[...(t1.items||[]),...(t2.items||[])],ri=rec.items||[];
+    const ri=rec.items||[];
     const am={};ri.forEach(i=>{const t=i.track;if(!t)return;const d=(t.duration_ms||0)/60000;(t.artists||[]).forEach(a=>{if(!am[a.id])am[a.id]={name:a.name,id:a.id,min:0,plays:0};am[a.id].min+=d;am[a.id].plays++})});
     const abt=Object.values(am).sort((a,b)=>b.min-a.min);
     const tm={};ri.forEach(i=>{const t=i.track;if(!t)return;if(!tm[t.id])tm[t.id]={...t,plays:0};tm[t.id].plays++});
     const tbp=Object.values(tm).sort((a,b)=>b.plays-a.plays);
     const hr=Array(24).fill(0).map((_,h)=>({h:`${h}h`,nb:0,min:0}));ri.forEach(i=>{const h=new Date(i.played_at).getHours();hr[h].nb++;hr[h].min+=(i.track?.duration_ms||0)/60000});
+    let tA,tT;
+    if(isRecent){
+      tT=tbp;// titres = écoutes récentes triées par nb de lectures (objets track complets)
+      const ids=Object.values(am).sort((a,b)=>b.plays-a.plays).slice(0,50).map(a=>a.id).filter(Boolean);
+      const playsById={};Object.values(am).forEach(a=>{playsById[a.id]=a.plays});
+      let hydrated=[];
+      try{if(ids.length){const ad=await sp(`/artists?ids=${ids.join(",")}`,tok);hydrated=(ad?.artists||[]).filter(Boolean)}}catch{}
+      const byId={};hydrated.forEach(a=>{byId[a.id]=a});
+      tA=ids.map(id=>({...(byId[id]||{id,name:am[id]?.name||"?",images:[]}),plays:playsById[id]||0}));
+    }else{
+      tA=[...(a1.items||[]),...(a2.items||[])];tT=[...(t1.items||[]),...(t2.items||[])];
+    }
     const avgDur=tT.length>0?tT.reduce((s,t)=>s+(t.duration_ms||0),0)/tT.length/60000:0;
-    setData({tA,tT,ri,prof,abt,tbp,hr,avgDur});setLd(false);
+    setData({tA,tT,ri,prof,abt,tbp,hr,avgDur,isRecent});setLd(false);
     const cached={};tA.forEach(a=>{if(mbCache.current[a.id])cached[a.id]=mbCache.current[a.id]});setMb(cached);
     const toFetch=tA.filter(a=>!mbCache.current[a.id]);setMbT(tA.length);setMbP(tA.length-toFetch.length);
     if(toFetch.length>0){setMbL(true);for(const a of toFetch){const r=await fetchMB(a.name);const v=r||{genres:[],country:null,countryCode:null};mbCache.current[a.id]=v;setMb(prev=>({...prev,[a.id]:v}));setMbP(p=>p+1);await new Promise(r=>setTimeout(r,1500))}setMbL(false)}
@@ -183,7 +196,6 @@ export default function App(){
   const playCtx=async u=>{try{await sp("/me/player/play",tok,{method:"PUT",body:JSON.stringify({context_uri:u})})}catch{}};
   const playArt=async id=>{try{await sp("/me/player/play",tok,{method:"PUT",body:JSON.stringify({context_uri:`spotify:artist:${id}`})})}catch{}};
   const playArtTop=async sid=>{if(!sid)return;try{const r=await sp(`/artists/${sid}/top-tracks`,tok);const u=r?.tracks?.[0]?.uri;if(u){await play(u);return}}catch{}try{await playArt(sid)}catch{}};
-  const mkPl=async(n,uris)=>{if(!uris?.length){setToast({ok:false,msg:"Aucun titre à mettre dans cette playlist."});return}try{const p=await sp(`/users/${data.prof.id}/playlists`,tok,{method:"POST",body:JSON.stringify({name:n,public:false})});if(!p?.id)throw new Error("réponse vide");for(let i=0;i<uris.length;i+=100)await sp(`/playlists/${p.id}/tracks`,tok,{method:"POST",body:JSON.stringify({uris:uris.slice(i,i+100)})});setToast({ok:true,msg:`« ${n} » créée — ${uris.length} titres ✓`})}catch(e){if(e.status===403){setPlErr("Spotify a refusé la création (403). Ton autorisation date d'avant l'ajout des permissions playlist — révoque l'app puis reconnecte-toi.")}else{setPlErr(`Échec de la création (erreur ${e.status||e.message}). Essaie de te reconnecter.`)}}};
   const customSearch=async()=>{if(!cG)return;setCL2(true);setCR([]);const known=new Set();data.tA.forEach(a=>known.add(a.name.toLowerCase()));data.tT.forEach(t=>(t.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));data.ri.forEach(i=>(i.track?.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));const cc=cC?Object.entries(ISO).find(([,v])=>v===cC)?.[0]||null:null;const artists=await searchMBA(cG,cc,25);const f=artists.filter(a=>!known.has(a.name.toLowerCase()));const e=await enrichSug([{genre:cG,country:cC||null,artists:f.slice(0,12)}],tok);setCR(e);setCL2(false)};
 
   const login=useCallback(async()=>{if(!cid.trim())return;const v=genV(),ch=await genC(v);sessionStorage.setItem("sp_verifier",v);sessionStorage.setItem("sp_client_id",cid.trim());const u=new URL("https://accounts.spotify.com/authorize");u.searchParams.set("client_id",cid.trim());u.searchParams.set("response_type","code");u.searchParams.set("redirect_uri",REDIR);u.searchParams.set("scope",SCOPES);u.searchParams.set("code_challenge_method","S256");u.searchParams.set("code_challenge",ch);window.location.href=u.toString()},[cid]);
@@ -195,7 +207,7 @@ export default function App(){
   if(!tok)return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif",padding:24}}><div style={{maxWidth:480,width:"100%"}}><div style={{textAlign:"center",marginBottom:40}}><div style={{fontSize:48,marginBottom:12}}>🎧</div><h1 style={{color:C.txt,fontSize:28,fontWeight:700,margin:0}}>Your Spotify, Uncovered.</h1><p style={{color:C.mut,marginTop:8,fontSize:14}}>Ton analyse complète</p></div><Card><div style={{display:"flex",marginBottom:24,borderBottom:`1px solid ${C.brd}`}}>{[["input","Connexion"],["guide","Guide"]].map(([k,l])=><button key={k} onClick={()=>setSu(k)} style={{flex:1,padding:"10px",background:"none",border:"none",color:su===k?C.grn:C.mut,borderBottom:`2px solid ${su===k?C.grn:"transparent"}`,cursor:"pointer",fontSize:13,fontWeight:500}}>{l}</button>)}</div>{su==="input"?<div><label style={{color:C.mut,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"monospace"}}>Client ID</label><input type="text" value={cid} onChange={e=>setCid(e.target.value)} placeholder="Colle ton Client ID" onKeyDown={e=>e.key==="Enter"&&login()} style={{width:"100%",marginTop:8,padding:"12px 16px",background:C.sf,border:`1px solid ${C.brd}`,borderRadius:10,color:C.txt,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"monospace"}} /><p style={{color:C.mut,fontSize:11,marginTop:8}}>Redirect URI: <code style={{color:C.acc}}>{REDIR}</code></p><button onClick={login} disabled={!cid.trim()} style={{width:"100%",marginTop:20,padding:"14px",background:cid.trim()?C.grn:C.brd,border:"none",borderRadius:50,color:cid.trim()?"#000":C.mut,fontSize:15,fontWeight:700,cursor:cid.trim()?"pointer":"default"}}>Connecter →</button></div>:<div style={{fontSize:13,color:C.mut,lineHeight:1.8}}><p><span style={{color:C.grn,fontWeight:700}}>1.</span> <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer" style={{color:C.acc}}>developer.spotify.com/dashboard</a> → Create app</p><p><span style={{color:C.grn,fontWeight:700}}>2.</span> Redirect URI: <code style={{color:C.acc}}>{REDIR}</code></p><p><span style={{color:C.grn,fontWeight:700}}>3.</span> Web API → Copie Client ID → Connecte</p></div>}</Card></div></div>;
   if(!data)return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif"}}><div style={{textAlign:"center"}}><div style={{fontSize:48,marginBottom:16,animation:"spin 1.5s linear infinite"}}>🎵</div><p style={{color:C.mut}}>{lm}</p></div>{spin}</div>;
 
-  const{tA,tT,ri,prof,abt,tbp,hr,avgDur}=data;
+  const{tA,tT,ri,prof,abt,tbp,hr,avgDur,isRecent}=data;
   // Agrégation genres/pays — "unknown" N'EST PAS compté dans les tops
   const gc={},cc={},abg={},abc={},ccByCode={},abcByCode={};
   tA.forEach(a=>{const m=mb[a.id];if(!m)return;(m.genres||[]).forEach(g=>{gc[g]=(gc[g]||0)+1;if(!abg[g])abg[g]=[];abg[g].push(a)});if(m.country){cc[m.country]=(cc[m.country]||0)+1;if(!abc[m.country])abc[m.country]=[];abc[m.country].push(a)}if(m.countryCode){ccByCode[m.countryCode]=(ccByCode[m.countryCode]||0)+1;if(!abcByCode[m.countryCode])abcByCode[m.countryCode]=[];abcByCode[m.countryCode].push(a)}});
@@ -205,11 +217,11 @@ export default function App(){
   const maxC=allC.length?Math.max(...allC.map(c=>c.count)):1;
   const gph=hr.map((_,idx)=>{const ht=ri.filter(i=>new Date(i.played_at).getHours()===idx);const hgc={};ht.forEach(i=>(i.track?.artists||[]).forEach(a=>{const m=mb[a.id];if(m&&m.genres?.length)m.genres.forEach(g=>{hgc[g]=(hgc[g]||0)+1})}));const top=Object.entries(hgc).sort((a,b)=>b[1]-a[1])[0];return{h:`${idx}h`,genre:top?top[0]:"—",nb:hr[idx].nb}}).filter(h=>h.nb>0);
   const hGenres=[...new Set(gph.map(h=>h.genre).filter(g=>g!=="—"))];
-  const enr=Object.keys(mb).length;const TL={short_term:"4 sem.",medium_term:"6 mois",long_term:"Tout"};
+  const enr=Object.keys(mb).length;const TL={short_term:"4 sem.",medium_term:"6 mois",long_term:"Tout",recent:"50 écoutes"};
   const np=pl?.item;const npMb=np?.artists?.[0]?.id?mb[np.artists[0].id]:null;
-  const tabs=[["overview","📊 Overview"],["artists","🎤 Artistes"],["tracks","🎵 Titres"],["genres","🎨 Genres"],["countries","🌍 Carte"],["similar","✨ Similaires"],["discover","🔮 Découvertes"],["evolution","📈 Évolution"],["recent","🕐 Récent"],["playlists","📋 Playlists"],["player","🎮 Lecteur"],["compat","🤝 Compat"]];
+  const tabs=[["overview","📊 Overview"],["artists","🎤 Artistes"],["tracks","🎵 Titres"],["genres","🎨 Genres"],["countries","🌍 Carte"],["similar","✨ Similaires"],["discover","🔮 Découvertes"],["evolution","📈 Évolution"],["habits","🕐 Habitudes",true],["playlists","📋 Playlists"],["player","🎮 Lecteur"],["compat","🤝 Compat"]];
   const nowUri=pl?.context?.uri;
-  const changeTr=k=>{setTr(k);setTab("overview")};
+  const changeTr=k=>{setTr(k);if(tab==="habits"&&k!=="recent")setTab("overview")};
 
   const popVals=tA.map(a=>a.popularity).filter(p=>typeof p==="number");
   const obscurity=popVals.length?Math.round(100-popVals.reduce((s,p)=>s+p,0)/popVals.length):null;
@@ -221,33 +233,55 @@ export default function App(){
   // ─── PARTAGE : image enrichie, télécharge directement ───
   const generateShare=async()=>{
     setToast({ok:true,msg:"Génération de l'image…"});
-    const W=1080,H=1920,cv=document.createElement("canvas");cv.width=W;cv.height=H;const x=cv.getContext("2d");
+    const W=1080;
     const[pImg,aImgs,tImgs]=await Promise.all([
       loadImg(prof.images?.[0]?.url),
       Promise.all(tA.slice(0,5).map(a=>loadImg(a.images?.[a.images.length>1?1:0]?.url))),
       Promise.all(tT.slice(0,5).map(t=>loadImg(t.album?.images?.[t.album.images.length>1?1:0]?.url)))
     ]);
-    x.fillStyle="#0D0D0D";x.fillRect(0,0,W,H);x.fillStyle="#1DB954";x.fillRect(0,0,W,14);
-    let hy=120;
-    if(pImg){circ(x,pImg,150,hy+8,58);x.strokeStyle="#1DB954";x.lineWidth=5;x.beginPath();x.arc(150,hy+8,58,0,Math.PI*2);x.stroke()}
-    const hx=pImg?240:70;
-    x.fillStyle="#1DB954";x.font="bold 54px Inter,Arial,sans-serif";x.fillText("Your Spotify",hx,hy);
-    x.fillStyle="#fff";x.fillText("Uncovered",hx,hy+60);
-    x.fillStyle="#888";x.font="24px monospace";x.fillText(prof.display_name||"",hx,hy+102);
-    hy+=180;
-    x.fillStyle="#888";x.font="22px monospace";x.fillText(`Top ${PERIOD_LONG[tr]}`,70,hy);hy+=52;
-    x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 ARTISTES",70,hy);
-    tA.slice(0,5).forEach((a,i)=>{hy+=80;const im=aImgs[i],iy=hy-46;if(im)circ(x,im,98,iy,32);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(98,iy,32,0,Math.PI*2);x.fill()}x.fillStyle="#1DB954";x.font="bold 30px monospace";x.fillText(`${i+1}`,150,iy+11);x.fillStyle="#fff";x.font="34px Inter,Arial,sans-serif";x.fillText(a.name.slice(0,24),200,iy+11)});
-    hy+=78;
-    x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 TITRES",70,hy);
-    tT.slice(0,5).forEach((t,i)=>{hy+=84;const im=tImgs[i],iy=hy-50;if(im)rimg(x,im,66,iy,64,10);else{x.fillStyle=CL[i%CL.length];x.fillRect(66,iy,64,64)}x.fillStyle="#1DB954";x.font="bold 26px monospace";x.fillText(`${i+1}`,150,iy+28);x.fillStyle="#fff";x.font="30px Inter,Arial,sans-serif";x.fillText(t.name.slice(0,26),190,iy+22);x.fillStyle="#888";x.font="20px Inter,Arial,sans-serif";x.fillText((t.artists||[]).map(a=>a.name).join(", ").slice(0,34),190,iy+50)});
-    hy+=80;
-    x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("GENRES",70,hy);hy+=42;
-    x.fillStyle="#fff";x.font="27px Inter,Arial,sans-serif";hy=wrapText(x,allG.slice(0,12).map(g=>tc(g.name)).join("   ·   "),70,hy,W-140,40)+18;
-    x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("PAYS",70,hy);hy+=42;
-    x.fillStyle="#fff";x.font="27px Inter,Arial,sans-serif";hy=wrapText(x,allC.slice(0,12).map(c=>c.name).join("   ·   "),70,hy,W-140,40)+18;
-    x.fillStyle="#888";x.font="22px monospace";x.fillText(`${tA.length} artistes · ${allG.length} genres · ${allC.length} pays`,70,Math.min(hy,H-100));
-    x.fillStyle="#555";x.font="20px monospace";x.fillText("eva-s-cheng.github.io/spotify-dashboard",70,H-50);
+    const rr=(x,px,py,w,h,r)=>{x.beginPath();x.moveTo(px+r,py);x.arcTo(px+w,py,px+w,py+h,r);x.arcTo(px+w,py+h,px,py+h,r);x.arcTo(px,py+h,px,py,r);x.arcTo(px,py,px+w,py,r);x.closePath()};
+    const trunc=(x,s,maxW)=>{let v=s;if(x.measureText(v).width<=maxW)return v;while(v.length>2&&x.measureText(v+"…").width>maxW)v=v.slice(0,-1);return v+"…"};
+    const draw=x=>{
+      const H=x.canvas.height;
+      x.textAlign="left";x.fillStyle="#0D0D0D";x.fillRect(0,0,W,H);x.fillStyle="#1DB954";x.fillRect(0,0,W,14);
+      let hy=118;
+      if(pImg){circ(x,pImg,150,hy+8,58);x.strokeStyle="#1DB954";x.lineWidth=5;x.beginPath();x.arc(150,hy+8,58,0,Math.PI*2);x.stroke()}
+      const hx=pImg?240:70;
+      x.fillStyle="#1DB954";x.font="bold 54px Inter,Arial,sans-serif";x.fillText("Your Spotify",hx,hy);
+      x.fillStyle="#fff";x.fillText("Uncovered",hx,hy+60);
+      x.fillStyle="#888";x.font="24px monospace";x.fillText(prof.display_name||"",hx,hy+102);
+      hy+=168;
+      // Période — gros pill bien visible
+      x.font="bold 38px Inter,Arial,sans-serif";const pt=PERIOD_LONG[tr].toUpperCase();const pw=Math.min(W-140,x.measureText(pt).width+56);
+      x.fillStyle="#1DB954";rr(x,70,hy,pw,64,32);x.fill();
+      x.fillStyle="#0D0D0D";x.fillText(trunc(x,pt,pw-44),98,hy+43);
+      hy+=104;
+      // Encarts Top Artiste / Genre / Pays
+      const a1=tA[0]?tA[0].name:"—",g1=allG[0]?tc(allG[0].name):"—",c1=allC[0]?allC[0].name:"—";
+      const gap=18,bw=(W-140-2*gap)/3,bh=118;
+      [["TOP ARTISTE",a1],["TOP GENRE",g1],["TOP PAYS",c1]].forEach(([lab,val],i)=>{const bx=70+i*(bw+gap);x.fillStyle="#1C1C1C";rr(x,bx,hy,bw,bh,16);x.fill();x.fillStyle="#B3FF5C";x.font="bold 17px monospace";x.fillText(lab,bx+18,hy+34);x.fillStyle="#fff";x.font="bold 25px Inter,Arial,sans-serif";x.fillText(trunc(x,val,bw-36),bx+18,hy+76)});
+      hy+=bh+48;
+      // Top 5 artistes (premier rang collé au titre)
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 ARTISTES",70,hy);hy+=20;
+      tA.slice(0,5).forEach((a,i)=>{const iy=hy+30,im=aImgs[i];if(im)circ(x,im,98,iy,30);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(98,iy,30,0,Math.PI*2);x.fill()}x.fillStyle="#1DB954";x.font="bold 28px monospace";x.fillText(`${i+1}`,148,iy+10);x.fillStyle="#fff";x.font="32px Inter,Arial,sans-serif";x.fillText(trunc(x,a.name,W-260),196,iy+10);hy+=66});
+      hy+=42;
+      // Top 5 titres
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 TITRES",70,hy);hy+=20;
+      tT.slice(0,5).forEach((t,i)=>{const iy=hy+34,im=tImgs[i];if(im)rimg(x,im,68,iy-32,64,10);else{x.fillStyle=CL[i%CL.length];x.fillRect(68,iy-32,64,64)}x.fillStyle="#1DB954";x.font="bold 24px monospace";x.fillText(`${i+1}`,150,iy);x.fillStyle="#fff";x.font="28px Inter,Arial,sans-serif";x.fillText(trunc(x,t.name,W-260),190,iy-6);x.fillStyle="#888";x.font="20px Inter,Arial,sans-serif";x.fillText(trunc(x,(t.artists||[]).map(a=>a.name).join(", "),W-260),190,iy+22);hy+=80});
+      hy+=46;
+      // Genres
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("GENRES",70,hy);hy+=44;
+      x.fillStyle="#fff";x.font="27px Inter,Arial,sans-serif";hy=wrapText(x,allG.slice(0,12).map(g=>tc(g.name)).join("   ·   ")||"—",70,hy,W-140,40)+22;
+      // Pays
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("PAYS",70,hy);hy+=44;
+      x.fillStyle="#fff";x.font="27px Inter,Arial,sans-serif";hy=wrapText(x,allC.slice(0,12).map(c=>c.name).join("   ·   ")||"—",70,hy,W-140,40)+18;
+      x.fillStyle="#888";x.font="22px monospace";x.fillText(`${tA.length} artistes · ${allG.length} genres · ${allC.length} pays`,70,hy+14);hy+=24;
+      return hy;
+    };
+    const m=document.createElement("canvas");m.width=W;m.height=3200;const finalY=draw(m.getContext("2d"));
+    const H=Math.max(1200,Math.ceil(finalY+90));
+    const cv=document.createElement("canvas");cv.width=W;cv.height=H;const x=cv.getContext("2d");draw(x);
+    x.fillStyle="#555";x.font="20px monospace";x.textAlign="left";x.fillText("eva-s-cheng.github.io/spotify-dashboard",70,H-40);
     cv.toBlob(b=>{if(!b){setToast({ok:false,msg:"Échec de la génération."});return}const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=`spotify-wrapped-${tr}.png`;a.click();URL.revokeObjectURL(u);setToast({ok:true,msg:"Image téléchargée ✓"})},"image/png");
   };
 
@@ -290,14 +324,15 @@ export default function App(){
   };
 
   // ─── Comparaison des temporalités ───
-  const genEvo=async()=>{setEvoL(true);try{const rs=["short_term","medium_term","long_term"];const res=await Promise.all(rs.map(r=>sp(`/me/top/artists?limit=20&time_range=${r}`,tok).catch(()=>({items:[]}))));const recent=[...abt].sort((x,y)=>y.plays-x.plays).slice(0,20);setEvoData({short:res[0].items||[],medium:res[1].items||[],long:res[2].items||[],recent})}catch{}setEvoL(false)};
+  const genEvo=async()=>{setEvoL(true);try{const rs=["short_term","medium_term","long_term"];const[ar,tk]=await Promise.all([Promise.all(rs.map(r=>sp(`/me/top/artists?limit=30&time_range=${r}`,tok).catch(()=>({items:[]})))),Promise.all(rs.map(r=>sp(`/me/top/tracks?limit=50&time_range=${r}`,tok).catch(()=>({items:[]}))))]);const recA=[...abt].sort((x,y)=>y.plays-x.plays).slice(0,30);const recT=tbp.slice(0,50);setEvoData({short:{artists:ar[0].items||[],tracks:tk[0].items||[]},medium:{artists:ar[1].items||[],tracks:tk[1].items||[]},long:{artists:ar[2].items||[],tracks:tk[2].items||[]},recent:{artists:recA,tracks:recT}})}catch{}setEvoL(false)};
+  const artistRecentTracks=id=>{const m={};ri.forEach(i=>{const t=i.track;if(!t)return;if((t.artists||[]).some(a=>a.id===id)){if(!m[t.id])m[t.id]={...t,plays:0};m[t.id].plays++}});return Object.values(m).sort((a,b)=>b.plays-a.plays)};
+  const openEvoArtist=(name,id)=>{const trk=artistRecentTracks(id);const content=<div><p style={{color:C.mut,fontSize:12,marginBottom:12}}>{trk.length?`${trk.length} titre(s) dans tes 50 dernières écoutes`:"Aucune lecture dans tes 50 dernières écoutes"}</p>{trk.map(t=><div key={t.id} onClick={()=>play(t.uri)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}>{t.album?.images?.[0]&&<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:4}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div></div><span style={{color:C.acc,fontSize:11,fontFamily:"monospace"}}>{t.plays}x</span></div>)}</div>;pushDrill(name,content)};
 
   // ─── Drill-down (avec pile + retour) ───
   const openDrill=(title,artists)=>{
     const tracks=tT.filter(t=>(t.artists||[]).some(a=>artists.some(d=>d.id===a.id)));
     const content=<div>
       <p style={{color:C.mut,fontSize:12,marginBottom:12}}>{artists.length} artistes · {tracks.length} titres</p>
-      {tracks.length>0&&<button onClick={()=>mkPl(`${title} Mix`,tracks.map(t=>t.uri))} style={{padding:"8px 16px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:16}}>Créer playlist</button>}
       {artists.map((a,i)=>{const m=mb[a.id];const at=tracks.filter(t=>(t.artists||[]).some(ta=>ta.id===a.id));return<div key={a.id} style={{marginBottom:10}}><div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0"}}><span style={{color:C.mut,fontSize:10,width:20,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{a.images?.[0]?<img src={a.images[a.images.length>1?1:0].url} alt="" style={{width:34,height:34,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:34,height:34,borderRadius:"50%",background:C.dim}} />}<div style={{flex:1}}><div style={{color:C.txt,fontSize:13,fontWeight:600}}>{a.name}</div><div style={{color:C.mut,fontSize:10}}>{gl(m)}{m?.country?` · ${m.country}`:""}</div></div></div>{at.length>0&&<div style={{marginLeft:64}}>{at.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"2px 0",cursor:"pointer",borderBottom:`1px solid ${C.brd}`}} onClick={()=>play(t.uri)}><div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div></div><span style={{color:C.grn,fontSize:10}}>▶</span></div>)}</div>}</div>})}
     </div>;
     pushDrill(title,content);
@@ -318,19 +353,12 @@ export default function App(){
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',sans-serif",color:C.txt,padding:"20px 16px 100px",maxWidth:1200,margin:"0 auto"}}>
       {cur&&<><div onClick={closeDrill} style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",background:"rgba(0,0,0,0.6)",zIndex:999}} /><DrillDown title={cur.title} items={cur.content} onClose={closeDrill} onBack={popDrill} canBack={drillStack.length>1} /></>}
 
-      {plErr&&<div style={{background:"rgba(255,107,107,0.12)",border:`1px solid ${C.red}`,borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <span style={{color:C.red,fontSize:12,flex:1,minWidth:200}}>{plErr}</span>
-        <button onClick={()=>window.open("https://www.spotify.com/account/apps/","_blank","noreferrer")} style={{padding:"8px 14px",background:C.brd,border:"none",borderRadius:50,color:C.txt,fontSize:11,fontWeight:600,cursor:"pointer"}}>Gérer les apps ↗</button>
-        <button onClick={forceReauth} style={{padding:"8px 14px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>Révoquer & reconnecter</button>
-        <button onClick={()=>setPlErr(null)} style={{background:"none",border:"none",color:C.mut,cursor:"pointer"}}>✕</button>
-      </div>}
-
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>{prof.images?.[0]&&<img src={prof.images[0].url} alt="" style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.grn}`}} />}<div><h1 style={{margin:0,fontSize:20,fontWeight:700}}>{prof.display_name}</h1><p style={{margin:0,color:C.mut,fontSize:11}}>{TL[tr]}</p></div></div>
-        <div style={{display:"flex",gap:6}}>{Object.entries(TL).map(([k,l])=><button key={k} onClick={()=>changeTr(k)} style={{padding:"6px 14px",borderRadius:50,fontSize:11,background:tr===k?C.grn:C.card,border:`1px solid ${tr===k?C.grn:C.brd}`,color:tr===k?"#000":C.mut,cursor:"pointer",fontWeight:tr===k?700:400}}>{l}</button>)}</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>{Object.entries(TL).map(([k,l])=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:6}}>{k==="recent"&&<span style={{width:1,height:20,background:C.brd,margin:"0 2px"}} />}<button onClick={()=>changeTr(k)} style={{padding:"6px 14px",borderRadius:50,fontSize:11,background:tr===k?C.grn:C.card,border:`1px solid ${tr===k?C.grn:C.brd}`,color:tr===k?"#000":C.mut,cursor:"pointer",fontWeight:tr===k?700:400}}>{l}</button></span>)}</div>
       </div>
 
-      <div style={{display:"flex",gap:2,marginBottom:20,borderBottom:`1px solid ${C.brd}`,overflowX:"auto"}}>{tabs.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{padding:"10px 12px",background:"none",border:"none",color:tab===k?C.grn:C.mut,borderBottom:`2px solid ${tab===k?C.grn:"transparent"}`,cursor:"pointer",fontSize:11,fontWeight:tab===k?600:400,marginBottom:-1,whiteSpace:"nowrap"}}>{l}</button>)}</div>
+      <div style={{display:"flex",gap:2,marginBottom:20,borderBottom:`1px solid ${C.brd}`,overflowX:"auto"}}>{tabs.map(([k,l,recentOnly])=>{const disabled=recentOnly&&!isRecent;return<button key={k} disabled={disabled} onClick={()=>!disabled&&setTab(k)} title={disabled?"Disponible en mode « 50 écoutes »":""} style={{padding:"10px 12px",background:"none",border:"none",color:disabled?C.dim:tab===k?C.grn:C.mut,borderBottom:`2px solid ${tab===k?C.grn:"transparent"}`,cursor:disabled?"not-allowed":"pointer",fontSize:11,fontWeight:tab===k?600:400,marginBottom:-1,whiteSpace:"nowrap",opacity:disabled?0.5:1}}>{l}</button>})}</div>
       {mbL&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:C.mut,fontSize:11}}>Enrichissement en cours…</span><span style={{color:C.mut,fontSize:11}}>{mbP}/{mbT}</span></div><div style={{width:"100%",height:3,background:C.brd,borderRadius:2}}><div style={{width:`${(mbP/Math.max(mbT,1))*100}%`,height:"100%",background:C.grn,borderRadius:2,transition:"width 0.5s"}} /></div></div>}
 
       {/* OVERVIEW */}
@@ -361,10 +389,10 @@ export default function App(){
       </>}
 
       {/* ARTISTES — liste seule (le "temps d'écoute récent" est passé dans Récent) */}
-      {tab==="artists"&&<><div style={{marginBottom:16}}><button onClick={()=>{const uris=[];tA.forEach(a=>{tT.filter(t=>(t.artists||[]).some(ta=>ta.id===a.id)).forEach(t=>{if(!uris.includes(t.uri))uris.push(t.uri)})});mkPl(`Top Artistes — ${TL[tr]}`,uris)}} style={{padding:"8px 16px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:600,cursor:"pointer"}}>Créer playlist top artistes</button></div><Card><Lbl>Top {tA.length} artistes</Lbl><div style={{maxHeight:800,overflowY:"auto"}}>{tA.map((a,i)=>{const m=mb[a.id];return<div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(a.name,[a])}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{a.images?.[0]?<img src={a.images[a.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:32,height:32,borderRadius:"50%",background:C.dim}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{gl(m,2)}{m?.country?` · ${m.country}`:""}</div></div></div>})}</div></Card></>}
+      {tab==="artists"&&<><Card><Lbl>{isRecent?"Artistes les plus écoutés récemment":`Top ${tA.length} artistes`}</Lbl><div style={{maxHeight:800,overflowY:"auto"}}>{tA.map((a,i)=>{const m=mb[a.id];return<div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(a.name,[a])}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{a.images?.[0]?<img src={a.images[a.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:32,height:32,borderRadius:"50%",background:C.dim}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{gl(m,2)}{m?.country?` · ${m.country}`:""}</div></div>{isRecent&&a.plays&&<span style={{color:C.acc,fontSize:10,fontFamily:"monospace"}}>{a.plays}x</span>}</div>})}</div></Card></>}
 
-      {/* TITRES — liste seule (le "plus joués récemment" est passé dans Récent) */}
-      {tab==="tracks"&&<><div style={{marginBottom:16}}><button onClick={()=>mkPl(`Top ${tT.length} Titres — ${TL[tr]}`,tT.map(t=>t.uri))} style={{padding:"8px 16px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:600,cursor:"pointer"}}>Créer playlist ({tT.length} titres)</button></div><Card><Lbl>Top {tT.length} titres</Lbl><div style={{maxHeight:800,overflowY:"auto"}}>{tT.map((t,i)=>{const d=t.duration_ms?`${Math.floor(t.duration_ms/60000)}:${String(Math.floor((t.duration_ms%60000)/1000)).padStart(2,"0")}`:"";return<div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>play(t.uri)}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{t.album?.images?.[0]?<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:4}} />:<div style={{width:32,height:32,borderRadius:4,background:C.dim}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div><div style={{color:C.mut,fontSize:9}}>{(t.artists||[]).map(a=>a.name).join(", ")}</div></div><div style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{d}</div></div>})}</div></Card></>}
+      {/* TITRES */}
+      {tab==="tracks"&&<><Card><Lbl>{isRecent?"Titres les plus écoutés récemment":`Top ${tT.length} titres`}</Lbl><div style={{maxHeight:800,overflowY:"auto"}}>{tT.map((t,i)=>{const d=t.duration_ms?`${Math.floor(t.duration_ms/60000)}:${String(Math.floor((t.duration_ms%60000)/1000)).padStart(2,"0")}`:"";return<div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>play(t.uri)}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{t.album?.images?.[0]?<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:4}} />:<div style={{width:32,height:32,borderRadius:4,background:C.dim}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div><div style={{color:C.mut,fontSize:9}}>{(t.artists||[]).map(a=>a.name).join(", ")}</div></div>{isRecent&&t.plays?<span style={{color:C.acc,fontSize:10,fontFamily:"monospace"}}>{t.plays}x</span>:<div style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{d}</div>}</div>})}</div></Card></>}
 
       {/* GENRES — treemap */}
       {tab==="genres"&&(allG.length>0?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
@@ -407,14 +435,20 @@ export default function App(){
 
       {/* ÉVOLUTION */}
       {tab==="evolution"&&<div>
-        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>Évolution des goûts</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Compare ton top 20 artistes sur les 3 périodes + tes 50 dernières écoutes.</p></div><button onClick={genEvo} disabled={evoL} style={{padding:"10px 18px",background:evoL?C.brd:C.grn,border:"none",borderRadius:50,color:evoL?C.mut:"#000",fontSize:12,fontWeight:700,cursor:evoL?"default":"pointer"}}>{evoL?"Chargement…":"Comparer"}</button></div></Card>
-        {evoData&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:12}}>{[["short","4 semaines"],["medium","6 mois"],["long","Tout le temps"],["recent","50 écoutes"]].map(([k,l])=><Card key={k} style={{padding:16}}><Lbl>{l}</Lbl>{(evoData[k]||[]).map((a,i)=>{const inOthers=Object.entries(evoData).some(([kk,arr])=>kk!==k&&(arr||[]).slice(0,20).some(x=>x.id===a.id));return<div key={a.id+"-"+k} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div>{k==="recent"&&a.plays&&<span style={{color:C.mut,fontSize:9,fontFamily:"monospace"}}>{a.plays}x</span>}{!inOthers&&<span title="Spécifique à cette colonne" style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>})}</Card>)}</div>}
-        {evoData&&<p style={{color:C.mut,fontSize:10,marginTop:10}}>« NEW » = présent dans cette colonne mais dans aucune des autres. La colonne « 50 écoutes » vient de l'historique récent (indépendant de la période).</p>}
+        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>Évolution des goûts</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Top 30 artistes & top 50 titres sur les 3 périodes + tes 50 dernières écoutes.</p></div><button onClick={genEvo} disabled={evoL} style={{padding:"10px 18px",background:evoL?C.brd:C.grn,border:"none",borderRadius:50,color:evoL?C.mut:"#000",fontSize:12,fontWeight:700,cursor:evoL?"default":"pointer"}}>{evoL?"Chargement…":"Comparer"}</button></div></Card>
+        {evoData&&<>
+          <div style={{display:"flex",gap:6,marginBottom:14}}>{[["artists","Artistes (top 30)"],["tracks","Titres (top 50)"]].map(([k,l])=><button key={k} onClick={()=>setEvoView(k)} style={{padding:"7px 16px",borderRadius:50,fontSize:12,background:evoView===k?C.grn:C.card,border:`1px solid ${evoView===k?C.grn:C.brd}`,color:evoView===k?"#000":C.mut,cursor:"pointer",fontWeight:evoView===k?700:400}}>{l}</button>)}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>{[["short","4 semaines"],["medium","6 mois"],["long","Tout le temps"],["recent","50 écoutes"]].map(([k,l])=>{const list=(evoData[k]||{})[evoView]||[];return<Card key={k} style={{padding:16}}><Lbl>{l}</Lbl><div style={{maxHeight:560,overflowY:"auto"}}>{list.map((it,i)=>{const inOthers=Object.entries(evoData).some(([kk,v])=>kk!==k&&((v||{})[evoView]||[]).some(x=>x.id===it.id));
+            if(evoView==="artists")return<div key={it.id+"-"+k} onClick={()=>openEvoArtist(it.name,it.id)} title="Voir les titres joués" style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span title="Spécifique à cette colonne" style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
+            return<div key={it.id+"-"+k} onClick={()=>play(it.uri)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div><div style={{color:C.mut,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.artists||[]).map(a=>a.name).join(", ")}</div></div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
+          })}</div></Card>})}</div>
+          <p style={{color:C.mut,fontSize:10,marginTop:10}}>« NEW » = présent dans cette colonne mais dans aucune des autres. {evoView==="artists"&&"Clique un artiste pour voir ses titres joués récemment et le nombre de lectures."} La colonne « 50 écoutes » vient de l'historique récent.</p>
+        </>}
       </div>}
 
       {/* RÉCENT — toutes les analyses basées sur les 50 dernières écoutes, indépendant de la période */}
-      {tab==="recent"&&<>
-        <p style={{color:C.mut,fontSize:11,marginBottom:16}}>Basé sur tes <b style={{color:C.txt}}>50 dernières écoutes</b> — indépendant de la période (4 sem / 6 mois / tout) choisie en haut.</p>
+      {tab==="habits"&&<>
+        <p style={{color:C.mut,fontSize:11,marginBottom:16}}>Analyse de tes <b style={{color:C.txt}}>50 dernières écoutes</b> par heure. Onglet réservé au mode « 50 écoutes ». La sélection des tops (artistes, titres, genres, pays) suit déjà la temporalité « 50 écoutes » en haut.</p>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
           <Card><Lbl>50 dernières écoutes</Lbl><div style={{maxHeight:420,overflowY:"auto"}}>{ri.map((item,i)=>{const t=item.track,diff=(Date.now()-new Date(item.played_at))/1000,ago=diff<3600?`${Math.floor(diff/60)}m`:diff<86400?`${Math.floor(diff/3600)}h`:`${Math.floor(diff/86400)}j`;return<div key={`${t.id}-${i}`} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>play(t.uri)}>{t.album?.images?.[0]&&<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:28,height:28,borderRadius:4}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div><div style={{color:C.mut,fontSize:9}}>{(t.artists||[]).map(a=>a.name).join(", ")}</div></div><div style={{color:C.mut,fontSize:9,fontFamily:"monospace"}}>{ago}</div></div>})}</div></Card>
           <Card><Lbl>Plus joués récemment</Lbl><div style={{maxHeight:420,overflowY:"auto"}}>{tbp.map((t,i)=><div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>play(t.uri)}><span style={{color:C.mut,fontSize:10,width:20,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{t.album?.images?.[0]&&<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:28,height:28,borderRadius:4}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div></div><div style={{color:C.acc,fontSize:10,fontFamily:"monospace"}}>{t.plays}x</div></div>)}</div></Card>
@@ -430,12 +464,12 @@ export default function App(){
       </>}
 
       {/* PLAYLISTS */}
-      {tab==="playlists"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}><Card><Lbl>Mes playlists ({pls.length})</Lbl>{pls.length===0&&<p style={{color:C.mut,fontSize:12}}>Aucune playlist chargée (ou chargement en cours). Si ça persiste, reconnecte-toi.</p>}<div style={{maxHeight:700,overflowY:"auto"}}>{pls.map(p=>{const isPlaying=nowUri===p.uri;const n=plCounts[p.id]!==undefined?plCounts[p.id]:p.tracks?.total;return<div key={p.id} style={{display:"flex",alignItems:"center",gap:12,padding:isPlaying?"8px":"8px 0",borderBottom:`1px solid ${C.brd}`,background:isPlaying?"rgba(29,185,84,0.1)":"transparent",borderRadius:isPlaying?10:0,marginBottom:isPlaying?4:0}}>
+      {tab==="playlists"&&<div><Card><Lbl>Mes playlists ({pls.length})</Lbl>{pls.length===0&&<p style={{color:C.mut,fontSize:12}}>Aucune playlist chargée (ou chargement en cours). Si ça persiste, reconnecte-toi.</p>}<div style={{maxHeight:760,overflowY:"auto"}}>{pls.map(p=>{const isPlaying=nowUri===p.uri;const n=plCounts[p.id]!==undefined?plCounts[p.id]:p.tracks?.total;return<div key={p.id} style={{display:"flex",alignItems:"center",gap:12,padding:isPlaying?"8px":"8px 0",borderBottom:`1px solid ${C.brd}`,background:isPlaying?"rgba(29,185,84,0.1)":"transparent",borderRadius:isPlaying?10:0,marginBottom:isPlaying?4:0}}>
         {p.images?.[0]?<img src={p.images[0].url} alt="" style={{width:42,height:42,borderRadius:6,objectFit:"cover"}} />:<div style={{width:42,height:42,borderRadius:6,background:C.dim,display:"flex",alignItems:"center",justifyContent:"center"}}>♪</div>}
-        <div style={{flex:1,minWidth:0}}><div style={{color:isPlaying?C.grn:C.txt,fontSize:12,fontWeight:isPlaying?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div><div style={{color:C.mut,fontSize:10}}>{typeof n==="number"?`${n} titres`:"…"}{isPlaying&&<span style={{color:C.grn,fontWeight:700}}> · En lecture</span>}</div></div>
+        <div style={{flex:1,minWidth:0}}><div style={{color:isPlaying?C.grn:C.txt,fontSize:13,fontWeight:isPlaying?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>{(typeof n==="number"||isPlaying)&&<div style={{color:C.mut,fontSize:10}}>{typeof n==="number"?`${n} titres`:""}{typeof n==="number"&&isPlaying?" · ":""}{isPlaying&&<span style={{color:C.grn,fontWeight:700}}>En lecture</span>}</div>}</div>
         <a href={`https://open.spotify.com/playlist/${p.id}`} target="_blank" rel="noreferrer" title="Ouvrir dans Spotify" style={{color:C.acc,fontSize:15,textDecoration:"none",padding:"4px 6px"}}>↗</a>
         <button onClick={()=>(isPlaying&&pl?.is_playing)?cmd("pause"):playCtx(p.uri)} title={(isPlaying&&pl?.is_playing)?"Pause":"Lecture"} style={{background:isPlaying?C.grn:C.brd,border:"none",borderRadius:"50%",width:30,height:30,color:isPlaying?"#000":C.txt,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{(isPlaying&&pl?.is_playing)?I.pause(13):I.play(13)}</button>
-      </div>})}</div></Card><Card><Lbl>Créer des playlists</Lbl>{allG.slice(0,3).map(g=><button key={g.name} onClick={()=>{const a=abg[g.name]||[];const u=tT.filter(t=>(t.artists||[]).some(ar=>a.some(x=>x.id===ar.id))).map(t=>t.uri);mkPl(`Best of ${tc(g.name)}`,u)}} style={{display:"block",width:"100%",padding:"12px 16px",background:C.sf,border:`1px solid ${C.brd}`,borderRadius:10,color:C.txt,fontSize:12,cursor:"pointer",marginBottom:8,textAlign:"left"}}>🎨 Best of {tc(g.name)}</button>)}{allC.slice(0,3).map(c=><button key={c.name} onClick={()=>{const a=abc[c.name]||[];const u=tT.filter(t=>(t.artists||[]).some(ar=>a.some(x=>x.id===ar.id))).map(t=>t.uri);mkPl(`Best of ${c.name}`,u)}} style={{display:"block",width:"100%",padding:"12px 16px",background:C.sf,border:`1px solid ${C.brd}`,borderRadius:10,color:C.txt,fontSize:12,cursor:"pointer",marginBottom:8,textAlign:"left"}}>🌍 Best of {c.name}</button>)}</Card></div>}
+      </div>})}</div></Card></div>}
 
       {/* LECTEUR */}
       {tab==="player"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}><Card>{np?<div><div style={{display:"flex",gap:16,marginBottom:20}}>{np.album?.images?.[0]&&<img src={np.album.images[0].url} alt="" style={{width:140,height:140,borderRadius:12}} />}<div style={{flex:1}}><div style={{fontSize:18,fontWeight:700,marginBottom:4}}>{np.name}</div><div style={{color:C.mut,fontSize:13}}>{(np.artists||[]).map(a=>a.name).join(", ")}</div><a href={`https://open.spotify.com/album/${np.album?.id}`} target="_blank" rel="noreferrer" style={{color:C.acc,fontSize:11,textDecoration:"none",display:"block",marginTop:4}}>💿 {np.album?.name} ↗</a>{np.album?.release_date&&<div style={{color:C.mut,fontSize:10,marginTop:2}}>📅 {np.album.release_date.slice(0,4)}</div>}{npMb&&<div style={{marginTop:6}}><div style={{color:C.acc,fontSize:11}}>🎨 {gl(npMb)}</div>{npMb.country&&<div style={{color:C.acc,fontSize:11}}>🌍 {npMb.country}</div>}</div>}{ctxName&&<div style={{marginTop:6,padding:"4px 10px",background:C.sf,borderRadius:6,display:"inline-block"}}><span style={{color:C.grn,fontSize:11,fontWeight:600}}>{pl?.context?.type==="playlist"?"📋":"💿"} {ctxName}</span></div>}{pl?.progress_ms&&np.duration_ms&&<div style={{marginTop:10}}><div style={{width:"100%",height:4,background:C.brd,borderRadius:2}}><div style={{width:`${(pl.progress_ms/np.duration_ms)*100}%`,height:"100%",background:C.grn,borderRadius:2,transition:"width 1s linear"}} /></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{fmt(pl.progress_ms/60000)}</span><span style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{fmt(np.duration_ms/60000)}</span></div></div>}</div></div><div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10}}><PB label="Aléatoire" icon={I.shuffle()} active={pl?.shuffle_state} onClick={()=>cmd("shuffle")} /><PB label="Précédent" icon={I.prev()} onClick={()=>cmd("prev")} /><PB label={pl?.is_playing?"Pause":"Lecture"} icon={pl?.is_playing?I.pause():I.play()} big onClick={()=>cmd(pl?.is_playing?"pause":"play")} /><PB label="Suivant" icon={I.next()} onClick={()=>cmd("next")} /><PB label="Répéter" icon={pl?.repeat_state==="track"?I.repeatOne():I.repeat()} active={pl?.repeat_state!=="off"} onClick={()=>cmd("repeat")} /></div></div>:<div style={{textAlign:"center",padding:40}}><p style={{color:C.mut,fontSize:14}}>Ouvre Spotify sur un appareil</p></div>}</Card><div style={{display:"flex",flexDirection:"column",gap:16}}><Card><Lbl>Appareils ({devs.length})</Lbl>{devs.length>0?devs.map(d=><div key={d.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:`1px solid ${C.brd}`}}><span style={{fontSize:18}}>{d.type==="Computer"?"💻":d.type==="Smartphone"?"📱":"🔊"}</span><div style={{flex:1}}><div style={{color:C.txt,fontSize:13,fontWeight:500}}>{d.name}</div><div style={{color:C.mut,fontSize:10}}>{d.type} · Vol. {d.volume_percent}%</div></div>{d.is_active&&<div style={{background:C.grn,color:"#000",fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:50}}>ACTIF</div>}</div>):<p style={{color:C.mut}}>Aucun appareil</p>}</Card>{np&&albumTks.length>0&&<Card><Lbl>Album · {np.album?.name}</Lbl><div style={{maxHeight:300,overflowY:"auto"}}>{albumTks.map((t,i)=>{const cur2=t.id===np.id;return<div key={t.id} onClick={()=>play(t.uri)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:cur2?C.grn:C.mut,fontSize:10,width:20,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0,color:cur2?C.grn:C.txt,fontSize:12,fontWeight:cur2?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div><span style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{t.duration_ms?`${Math.floor(t.duration_ms/60000)}:${String(Math.floor((t.duration_ms%60000)/1000)).padStart(2,"0")}`:""}</span></div>})}</div></Card>}</div></div>}
