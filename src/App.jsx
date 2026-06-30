@@ -56,6 +56,19 @@ function mapColor(count,max){if(!count)return C.sf;const t=Math.min(1,count/Math
 function lerpHex(a,b,t){const ah=a.match(/\w\w/g).map(h=>parseInt(h,16)),bh=b.match(/\w\w/g).map(h=>parseInt(h,16));return `rgb(${ah.map((v,i)=>Math.round(v+(bh[i]-v)*t)).join(",")})`}
 
 
+function DrillDown({title,items,onClose,onBack,canBack}){
+  return(<div style={{position:"fixed",top:0,right:0,width:420,maxWidth:"92vw",height:"100vh",background:C.card,borderLeft:`2px solid ${C.grn}`,zIndex:1000,overflowY:"auto",padding:24,boxSizing:"border-box"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+        {canBack&&<button onClick={onBack} title="Retour" style={{background:C.brd,border:"none",color:C.txt,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>←</button>}
+        <h2 style={{margin:0,fontSize:18,fontWeight:700,color:C.grn,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</h2>
+      </div>
+      <button onClick={onClose} title="Fermer" style={{background:C.brd,border:"none",color:C.txt,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
+    </div>
+    {items}
+  </div>);
+}
+
 export default function App(){
   const[cid,setCid]=useState(()=>localStorage.getItem("sp_client_id")||"");
   const[tok,setTok]=useState(null);const[ld,setLd]=useState(true);const[lm,setLm]=useState("Connexion…");
@@ -197,6 +210,8 @@ export default function App(){
   const gAgg=aggGenres(selCountry?tA.filter(a=>mb[a.id]?.country===selCountry):tA);
   const cAgg=aggCountries(selGenre?tA.filter(a=>(mb[a.id]?.genres||[]).includes(selGenre)):tA);
   const geoMaxC=cAgg.list.length?Math.max(...cAgg.list.map(c=>c.count)):1;
+  const geoArtists=tA.filter(a=>{const m=mb[a.id];if(!m)return false;if(selGenre&&!(m.genres||[]).includes(selGenre))return false;if(selCountry&&m.country!==selCountry)return false;return !!(m.country||(m.genres&&m.genres.length))});
+  const geoTitle=`Artistes${selGenre?" · "+tc(selGenre):""}${selCountry?" · "+selCountry:""}`;
   const gph=hr.map((_,idx)=>{const ht=ri.filter(i=>new Date(i.played_at).getHours()===idx);const hgc={};ht.forEach(i=>(i.track?.artists||[]).forEach(a=>{const m=mb[a.id];if(m&&m.genres?.length)m.genres.forEach(g=>{hgc[g]=(hgc[g]||0)+1})}));const top=Object.entries(hgc).sort((a,b)=>b[1]-a[1])[0];return{h:`${idx}h`,genre:top?top[0]:"—",nb:hr[idx].nb}}).filter(h=>h.nb>0);
   const hGenres=[...new Set(gph.map(h=>h.genre).filter(g=>g!=="—"))];
   const enr=Object.keys(mb).length;const TL={short_term:"4 sem.",medium_term:"6 mois",long_term:"Tout",recent:"50 écoutes"};
@@ -390,7 +405,11 @@ export default function App(){
 
       {/* GENRES & PAYS — fusionnés, filtrage croisé */}
       {tab==="geo"&&(allG.length>0?<div>
-        {(selGenre||selCountry)&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}><span style={{color:C.mut,fontSize:11}}>Filtre actif :</span>{selGenre&&<button onClick={()=>setSelGenre(null)} style={{padding:"5px 12px",borderRadius:50,background:C.acc,border:"none",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>🎨 {tc(selGenre)} ✕</button>}{selCountry&&<button onClick={()=>setSelCountry(null)} style={{padding:"5px 12px",borderRadius:50,background:C.grn,border:"none",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>🌍 {selCountry} ✕</button>}<span style={{color:C.mut,fontSize:10}}>Clique un genre pour filtrer les pays, un pays pour filtrer les genres. Reclique le filtre actif pour l'enlever.</span></div>}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+          <button onClick={()=>openDrill(geoTitle,geoArtists)} style={{padding:"9px 18px",borderRadius:50,background:C.grn,border:"none",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer"}}>👥 Afficher les artistes ({geoArtists.length})</button>
+          {(selGenre||selCountry)&&<><span style={{color:C.mut,fontSize:11}}>Filtre :</span>{selGenre&&<button onClick={()=>setSelGenre(null)} style={{padding:"5px 12px",borderRadius:50,background:C.acc,border:"none",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>🎨 {tc(selGenre)} ✕</button>}{selCountry&&<button onClick={()=>setSelCountry(null)} style={{padding:"5px 12px",borderRadius:50,background:C.grn,border:"none",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>🌍 {selCountry} ✕</button>}</>}
+        </div>
+        <p style={{color:C.mut,fontSize:10,marginTop:-6,marginBottom:14}}>Clique un genre pour filtrer les pays, un pays (carte ou liste) pour filtrer les genres. Reclique le filtre actif pour l'enlever. Le bouton ci-dessus liste les artistes correspondant aux filtres.</p>
         <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr",gap:16}}>
           {/* Colonne PAYS (carte + liste), filtrée par le genre sélectionné */}
           <Card style={{position:"relative"}}><Lbl>Pays {selGenre?`· ${tc(selGenre)}`:""} ({cAgg.list.length})</Lbl>
