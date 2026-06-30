@@ -56,6 +56,23 @@ function mapColor(count,max){if(!count)return C.sf;const t=Math.min(1,count/Math
 function lerpHex(a,b,t){const ah=a.match(/\w\w/g).map(h=>parseInt(h,16)),bh=b.match(/\w\w/g).map(h=>parseInt(h,16));return `rgb(${ah.map((v,i)=>Math.round(v+(bh[i]-v)*t)).join(",")})`}
 
 
+// helpers canvas (wrapped)
+function wrapText(x,text,px,py,maxW,lh){const words=String(text).split(" ");let line="",yy=py;for(const w of words){const t=line?line+" "+w:w;if(x.measureText(t).width>maxW&&line){x.fillText(line,px,yy);line=w;yy+=lh}else line=t}if(line){x.fillText(line,px,yy);yy+=lh}return yy}
+function loadImg(url){return new Promise(res=>{if(!url){res(null);return}const im=new Image();im.crossOrigin="anonymous";im.onload=()=>res(im);im.onerror=()=>res(null);im.src=url})}
+function circ(x,im,cx,cy,r){x.save();x.beginPath();x.arc(cx,cy,r,0,Math.PI*2);x.closePath();x.clip();x.drawImage(im,cx-r,cy-r,2*r,2*r);x.restore()}
+function rimg(x,im,px,py,s,r){x.save();x.beginPath();x.moveTo(px+r,py);x.arcTo(px+s,py,px+s,py+s,r);x.arcTo(px+s,py+s,px,py+s,r);x.arcTo(px,py+s,px,py,r);x.arcTo(px,py,px+s,py,r);x.closePath();x.clip();x.drawImage(im,px,py,s,s);x.restore()}
+
+const I={
+  shuffle:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>,
+  prev:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5l-10 7 10 7z"/></svg>,
+  next:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5l10 7L4 19z"/></svg>,
+  play:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>,
+  pause:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>,
+  repeat:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
+  repeatOne:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="9.5" y="15.8" fontSize="9" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">1</text></svg>
+};
+function PB({icon,active,onClick,big,label}){const sz=big?52:38;return<button title={label} onClick={onClick} style={{width:sz,height:sz,borderRadius:"50%",border:big?"none":`1.5px solid ${active?C.grn:C.brd}`,background:big?C.grn:active?"rgba(29,185,84,0.18)":"transparent",color:big?"#000":active?C.grn:C.txt,cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",boxShadow:active&&!big?`0 0 0 1px ${C.grn},0 0 12px rgba(29,185,84,0.4)`:"none"}}>{icon}</button>}
+
 function DrillDown({title,items,onClose,onBack,canBack}){
   return(<div style={{position:"fixed",top:0,right:0,width:420,maxWidth:"92vw",height:"100vh",background:C.card,borderLeft:`2px solid ${C.grn}`,zIndex:1000,overflowY:"auto",padding:24,boxSizing:"border-box"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:10}}>
