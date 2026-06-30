@@ -40,7 +40,7 @@ async function fetchMB(name){
 async function searchMBA(tags,cc,lim=15){
   try{const arr=(Array.isArray(tags)?tags:[tags]).filter(Boolean);if(!arr.length)return[];const tq=arr.map(t=>`tag:"${t}"`).join(" AND ");const q=cc?`${tq} AND country:${cc}`:tq;const r=await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(q)}&limit=${lim}&fmt=json`,{headers:{"User-Agent":"SpotifyDash/1.0"}});if(!r.ok)return[];const d=await r.json();return(d.artists||[]).filter(a=>a.score>70).map(a=>({name:a.name,country:a.country?ISO[a.country]||a.country:null,tags:(a.tags||[]).sort((x,y)=>(y.count||0)-(x.count||0)).map(t=>t.name).filter(isGenre).slice(0,3)}))}catch{return[]}}
 
-async function enrichSug(groups,tok,gap=450){const cache={};const out=[];for(const g of groups){const ea=[];for(const a of g.artists){const key=(a.name||"").toLowerCase();if(cache[key]!==undefined){ea.push({...a,...cache[key]});continue}try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok,{},0);const s=r?.artists?.items?.[0];const v={sid:s?.id,img:s?.images?.[0]?.url};cache[key]=v;ea.push({...a,...v});await new Promise(r=>setTimeout(r,gap))}catch{cache[key]={sid:null,img:null};ea.push({...a,sid:null,img:null})}}out.push({...g,artists:ea})}return out}
+async function enrichSug(groups,tok,gap=450){const cache={};let fails=0,stop=false;const out=[];for(const g of groups){const ea=[];for(const a of g.artists){const key=(a.name||"").toLowerCase();if(cache[key]!==undefined){ea.push({...a,...cache[key]});continue}if(stop){const v={sid:null,img:null};cache[key]=v;ea.push({...a,...v});continue}try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok,{},0);const s=r?.artists?.items?.[0];const v={sid:s?.id,img:s?.images?.[0]?.url};cache[key]=v;ea.push({...a,...v});fails=0;await new Promise(r=>setTimeout(r,gap))}catch(e){const v={sid:null,img:null};cache[key]=v;ea.push({...a,...v});if(e&&e.status===429){fails++;if(fails>=4)stop=true}}}out.push({...g,artists:ea})}return out}
 
 // ─── THEME ───
 const C={bg:"#0D0D0D",sf:"#161616",card:"#1C1C1C",brd:"#2A2A2A",grn:"#1DB954",txt:"#FFF",mut:"#888",acc:"#B3FF5C",dim:"#333",red:"#FF6B6B"};
@@ -321,7 +321,7 @@ export default function App(){
     const known=new Set();tA.forEach(a=>known.add(a.name.toLowerCase()));tT.forEach(t=>(t.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));
     const groups=[];
     const wait=ms=>new Promise(r=>setTimeout(r,ms));
-    for(const a of tA.slice(0,8)){
+    for(const a of tA.slice(0,5)){
       const m=mb[a.id];if(!m||!m.genres?.length)continue;
       const g1=m.genres[0],g2=m.genres[1]||null,cc2=m.countryCode;
       const seen=new Set(),f=[];
@@ -453,7 +453,7 @@ export default function App(){
 
       {/* SIMILAIRES (You might also like) */}
       {tab==="similar"&&<div>
-        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 10 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div>{(simL||mbL)?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>:<button onClick={genSimilar} style={{padding:"10px 18px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{simRes.length?"↻ Relancer":"Lancer la recherche"}</button>}</div></Card>
+        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 5 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div>{(simL||mbL)?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>:<button onClick={genSimilar} style={{padding:"10px 18px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{simRes.length?"↻ Relancer":"Lancer la recherche"}</button>}</div></Card>
         {simRes.length===0&&!simL&&!mbL&&<Card><p style={{color:C.mut,textAlign:"center",fontSize:12}}>Clique « Lancer la recherche » pour trouver des artistes similaires.</p></Card>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{simRes.map((s,si)=><Card key={si} style={{padding:16,background:C.sf}}><div style={{marginBottom:10}}><span style={{color:C.mut,fontSize:10}}>Similaire à</span><div style={{color:C.acc,fontSize:14,fontWeight:700}}>{s.base}</div><div style={{color:C.mut,fontSize:9}}>{tc(s.genre)}{s.country?` · ${s.country}`:""}</div></div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[(si*5+ai)%CL.length]} />)}</Card>)}</div>
       </div>}
