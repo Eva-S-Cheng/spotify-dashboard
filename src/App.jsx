@@ -40,7 +40,7 @@ async function fetchMB(name){
 async function searchMBA(tags,cc,lim=15){
   try{const arr=(Array.isArray(tags)?tags:[tags]).filter(Boolean);if(!arr.length)return[];const tq=arr.map(t=>`tag:"${t}"`).join(" AND ");const q=cc?`${tq} AND country:${cc}`:tq;const r=await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(q)}&limit=${lim}&fmt=json`,{headers:{"User-Agent":"SpotifyDash/1.0"}});if(!r.ok)return[];const d=await r.json();return(d.artists||[]).filter(a=>a.score>70).map(a=>({name:a.name,country:a.country?ISO[a.country]||a.country:null,tags:(a.tags||[]).sort((x,y)=>(y.count||0)-(x.count||0)).map(t=>t.name).filter(isGenre).slice(0,3)}))}catch{return[]}}
 
-async function enrichSug(groups,tok,gap=320){const out=[];for(const g of groups){const ea=[];for(const a of g.artists){try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok);const s=r?.artists?.items?.[0];ea.push({...a,sid:s?.id,img:s?.images?.[0]?.url})}catch{ea.push({...a,sid:null,img:null})}await new Promise(r=>setTimeout(r,gap))}out.push({...g,artists:ea})}return out}
+async function enrichSug(groups,tok,gap=450){const cache={};const out=[];for(const g of groups){const ea=[];for(const a of g.artists){const key=(a.name||"").toLowerCase();if(cache[key]!==undefined){ea.push({...a,...cache[key]});continue}try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok,{},0);const s=r?.artists?.items?.[0];const v={sid:s?.id,img:s?.images?.[0]?.url};cache[key]=v;ea.push({...a,...v});await new Promise(r=>setTimeout(r,gap))}catch{cache[key]={sid:null,img:null};ea.push({...a,sid:null,img:null})}}out.push({...g,artists:ea})}return out}
 
 // ─── THEME ───
 const C={bg:"#0D0D0D",sf:"#161616",card:"#1C1C1C",brd:"#2A2A2A",grn:"#1DB954",txt:"#FFF",mut:"#888",acc:"#B3FF5C",dim:"#333",red:"#FF6B6B"};
@@ -171,7 +171,7 @@ export default function App(){
     const topG=Object.entries(gO).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([g])=>({genre:g,code:null,country:null}));
     if(topC.length===0&&topG.length===0)return;
     setSugL(true);setSug([]);
-    const results=[];for(const c of[...topC,...topG].slice(0,6)){const artists=await searchMBA(c.genre,c.code,20);const f=artists.filter(a=>!known.has(a.name.toLowerCase()));if(f.length>0)results.push({genre:c.genre,country:c.country,artists:f.slice(0,8)});await new Promise(r=>setTimeout(r,1800))}
+    const results=[];for(const c of[...topC,...topG].slice(0,6)){const artists=await searchMBA(c.genre,c.code,20);const f=artists.filter(a=>!known.has(a.name.toLowerCase()));if(f.length>0)results.push({genre:c.genre,country:c.country,artists:f.slice(0,5)});await new Promise(r=>setTimeout(r,1800))}
     const e=await enrichSug(results,tok);setSug(e);setSugL(false);
   };
 
@@ -321,7 +321,7 @@ export default function App(){
     const known=new Set();tA.forEach(a=>known.add(a.name.toLowerCase()));tT.forEach(t=>(t.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));
     const groups=[];
     const wait=ms=>new Promise(r=>setTimeout(r,ms));
-    for(const a of tA.slice(0,10)){
+    for(const a of tA.slice(0,8)){
       const m=mb[a.id];if(!m||!m.genres?.length)continue;
       const g1=m.genres[0],g2=m.genres[1]||null,cc2=m.countryCode;
       const seen=new Set(),f=[];
@@ -335,7 +335,7 @@ export default function App(){
       if(f.length<3){add(await searchMBA([g1],cc2,15));await wait(1200)}
       // 4) repli ultime : g1 seul
       if(f.length<3){add(await searchMBA([g1],null,15));await wait(1200)}
-      if(f.length>0){groups.push({base:a.name,genre:crossUsed?`${g1} + ${g2}`:g1,country:m.country,artists:f.slice(0,6)});f.forEach(z=>known.add(z.name.toLowerCase()))}
+      if(f.length>0){groups.push({base:a.name,genre:crossUsed?`${g1} + ${g2}`:g1,country:m.country,artists:f.slice(0,4)});f.forEach(z=>known.add(z.name.toLowerCase()))}
       await wait(1200);
     }
     const e=await enrichSug(groups,tok);setSimRes(e);setSimL(false);
@@ -360,14 +360,14 @@ export default function App(){
   const drillGenres=()=>pushDrill("Tous les genres",<div>{allG.map((g,i)=><div key={g.name} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(tc(g.name),abg[g.name]||[])}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,color:C.txt,fontSize:12}}>{tc(g.name)}</div><span style={{color:C.mut,fontSize:10}}>{g.count}</span></div>)}</div>);
   const drillCountries=()=>pushDrill("Tous les pays",<div>{allC.map((c,i)=><div key={c.name} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(c.name,abc[c.name]||[])}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,color:C.txt,fontSize:13}}>{c.name}</div><span style={{color:C.mut,fontSize:10}}>{c.count}</span></div>)}</div>);
 
-  const SugRow=({a,fb})=>(<div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.brd}`}}>
+  const SugRow=({a,fb})=>{const link=a.sid?`https://open.spotify.com/artist/${a.sid}`:`https://open.spotify.com/search/${encodeURIComponent(a.name)}`;return(<div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.brd}`}}>
     <div onClick={()=>a.sid&&playArtTop(a.sid)} title={a.sid?"Lire le 1er titre":""} style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0,cursor:a.sid?"pointer":"default"}}>
-      {a.img?<img src={a.img} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:38,height:38,borderRadius:"50%",background:fb,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#000",fontWeight:700}}>{(a.name||"?")[0].toUpperCase()}</div>}
-      <div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{(a.tags||[]).map(tc).join(", ")}{a.country?` · ${a.country}`:""}</div></div>
+      {a.img?<img src={a.img} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:38,height:38,borderRadius:"50%",background:fb,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#000",fontWeight:700,flexShrink:0}}>{(a.name||"?")[0].toUpperCase()}</div>}
+      <div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(a.tags||[]).map(tc).join(", ")}{a.country?` · ${a.country}`:""}</div></div>
       {a.sid&&<span style={{color:C.grn,fontSize:11}}>▶</span>}
     </div>
-    {a.sid&&<a href={`https://open.spotify.com/artist/${a.sid}`} target="_blank" rel="noreferrer" title="Page Spotify" onClick={e=>e.stopPropagation()} style={{color:C.acc,fontSize:14,textDecoration:"none",padding:"4px 6px"}}>↗</a>}
-  </div>);
+    <a href={link} target="_blank" rel="noreferrer" title={a.sid?"Page Spotify":"Rechercher sur Spotify"} onClick={e=>e.stopPropagation()} style={{color:C.acc,fontSize:14,textDecoration:"none",padding:"4px 6px",flexShrink:0}}>↗</a>
+  </div>)};
 
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',sans-serif",color:C.txt,padding:"20px 16px 100px",maxWidth:1200,margin:"0 auto"}}>
