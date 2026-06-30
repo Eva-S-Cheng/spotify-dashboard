@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Treemap } from "recharts";
+import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps";
 
 const REDIR = "https://eva-s-cheng.github.io/spotify-dashboard/";
@@ -45,7 +45,7 @@ async function enrichSug(groups,tok){const out=[];for(const g of groups){const e
 // ─── THEME ───
 const C={bg:"#0D0D0D",sf:"#161616",card:"#1C1C1C",brd:"#2A2A2A",grn:"#1DB954",txt:"#FFF",mut:"#888",acc:"#B3FF5C",dim:"#333",red:"#FF6B6B"};
 const CL=["#1DB954","#B3FF5C","#FF6B6B","#4ECDC4","#FFE66D","#A29BFE","#FF9F43","#EE5A6F","#0ABDE3","#5F27CD","#10AC84","#FDA7DF","#C44569","#3DC1D3","#778BEB","#E77F67"];
-const PERIOD_LONG={short_term:"sur les 4 dernières semaines",medium_term:"sur les 6 derniers mois",long_term:"depuis toujours"};
+const PERIOD_LONG={short_term:"sur les 4 dernières semaines",medium_term:"sur les 6 derniers mois",long_term:"depuis toujours",recent:"sur tes 50 dernières écoutes"};
 function Card({children,style={},onClick}){return<div onClick={onClick} style={{background:C.card,border:`1px solid ${C.brd}`,borderRadius:16,padding:24,cursor:onClick?"pointer":"default",...style}}>{children}</div>}
 function Lbl({children}){return<p style={{color:C.mut,fontSize:11,fontFamily:"monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,marginTop:0}}>{children}</p>}
 function SC({label,value,sub,icon,onClick}){return<Card onClick={onClick} style={{padding:18}}><div style={{display:"flex",justifyContent:"space-between"}}><Lbl>{label}</Lbl>{icon&&<span style={{fontSize:16}}>{icon}</span>}</div><div style={{fontSize:22,fontWeight:800,color:C.grn,fontFamily:"monospace",lineHeight:1}}>{value}</div>{sub&&<div style={{fontSize:10,color:C.mut,marginTop:6}}>{sub}</div>}</Card>}
@@ -53,39 +53,8 @@ function fmt(m){if(m<1)return"<1min";if(m<60)return`${Math.round(m)}min`;const h
 // Genres d'un artiste (affichage Title Case, "Unknown" si vide)
 function gl(m,k){const arr=(m&&m.genres&&m.genres.length)?m.genres:["unknown"];return(k?arr.slice(0,k):arr).map(tc).join(", ")}
 function mapColor(count,max){if(!count)return C.sf;const t=Math.min(1,count/Math.max(max,1));const lerp=(a,b)=>Math.round(a+(b-a)*t);return `rgb(${lerp(26,29)},${lerp(46,185)},${lerp(31,84)})`}
+function lerpHex(a,b,t){const ah=a.match(/\w\w/g).map(h=>parseInt(h,16)),bh=b.match(/\w\w/g).map(h=>parseInt(h,16));return `rgb(${ah.map((v,i)=>Math.round(v+(bh[i]-v)*t)).join(",")})`}
 
-function TreemapCell(props){const{x,y,width,height}=props;const name=props.name,count=props.count??props.size??props.value,f=props.fill||CL[(props.index||0)%CL.length];const big=width>46&&height>22;
-  return(<g style={{cursor:"pointer"}}><rect x={x} y={y} width={width} height={height} style={{fill:f,stroke:C.bg,strokeWidth:2}} />{big&&<text x={x+6} y={y+15} fill="#0D0D0D" fontSize={11} fontWeight={700} style={{pointerEvents:"none"}}>{tc(name)}</text>}{big&&height>34&&<text x={x+6} y={y+30} fill="#0D0D0D" fontSize={10} fontWeight={600} style={{pointerEvents:"none"}}>{count}</text>}</g>);}
-
-// helpers canvas (wrapped)
-function wrapText(x,text,px,py,maxW,lh){const words=text.split(" ");let line="",yy=py;for(const w of words){const t=line?line+" "+w:w;if(x.measureText(t).width>maxW&&line){x.fillText(line,px,yy);line=w;yy+=lh}else line=t}if(line){x.fillText(line,px,yy);yy+=lh}return yy}
-function loadImg(url){return new Promise(res=>{if(!url){res(null);return}const im=new Image();im.crossOrigin="anonymous";im.onload=()=>res(im);im.onerror=()=>res(null);im.src=url})}
-function circ(x,im,cx,cy,r){x.save();x.beginPath();x.arc(cx,cy,r,0,Math.PI*2);x.closePath();x.clip();x.drawImage(im,cx-r,cy-r,2*r,2*r);x.restore()}
-function rimg(x,im,px,py,s,r){x.save();x.beginPath();x.moveTo(px+r,py);x.arcTo(px+s,py,px+s,py+s,r);x.arcTo(px+s,py+s,px,py+s,r);x.arcTo(px,py+s,px,py,r);x.arcTo(px,py,px+s,py,r);x.closePath();x.clip();x.drawImage(im,px,py,s,s);x.restore()}
-
-const I={
-  shuffle:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>,
-  prev:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5l-10 7 10 7z"/></svg>,
-  next:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5l10 7L4 19z"/></svg>,
-  play:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>,
-  pause:(s=22)=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>,
-  repeat:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
-  repeatOne:(s=16)=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="9.5" y="15.8" fontSize="9" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">1</text></svg>
-};
-function PB({icon,active,onClick,big,label}){const sz=big?52:38;return<button title={label} onClick={onClick} style={{width:sz,height:sz,borderRadius:"50%",border:big?"none":`1.5px solid ${active?C.grn:C.brd}`,background:big?C.grn:active?"rgba(29,185,84,0.18)":"transparent",color:big?"#000":active?C.grn:C.txt,cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",boxShadow:active&&!big?`0 0 0 1px ${C.grn},0 0 12px rgba(29,185,84,0.4)`:"none"}}>{icon}</button>}
-
-function DrillDown({title,items,onClose,onBack,canBack}){
-  return(<div style={{position:"fixed",top:0,right:0,width:420,maxWidth:"90vw",height:"100vh",background:C.card,borderLeft:`2px solid ${C.grn}`,zIndex:1000,overflowY:"auto",padding:24,boxSizing:"border-box"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:10}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-        {canBack&&<button onClick={onBack} title="Retour" style={{background:C.brd,border:"none",color:C.txt,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>←</button>}
-        <h2 style={{margin:0,fontSize:18,fontWeight:700,color:C.grn,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</h2>
-      </div>
-      <button onClick={onClose} style={{background:C.brd,border:"none",color:C.txt,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
-    </div>
-    {items}
-  </div>);
-}
 
 export default function App(){
   const[cid,setCid]=useState(()=>localStorage.getItem("sp_client_id")||"");
@@ -106,7 +75,11 @@ export default function App(){
   const[simRes,setSimRes]=useState([]);const[simL,setSimL]=useState(false);
   const[evoData,setEvoData]=useState(null);const[evoL,setEvoL]=useState(false);const[evoView,setEvoView]=useState("artists");
   const pi=useRef(null);const lastCtx=useRef(null);const tabRef=useRef("overview");
+  const runId=useRef(0);const simFn=useRef(null),evoFn=useRef(null),simForTr=useRef(null),evoRun=useRef(false);
   useEffect(()=>{tabRef.current=tab},[tab]);
+  // Auto-génération (sans bouton) quand on ouvre l'onglet
+  useEffect(()=>{if(tab==="similar"&&!mbL&&!simL&&data&&Object.keys(mb).length>0&&simForTr.current!==tr){simForTr.current=tr;simFn.current&&simFn.current()}},[tab,mbL,tr,data,mb,simL]);
+  useEffect(()=>{if(tab==="evolution"&&!evoL&&!evoRun.current&&data&&tok){evoRun.current=true;evoFn.current&&evoFn.current()}},[tab,evoL,data,tok]);
 
   const pushDrill=(title,content)=>setDrillStack(s=>[...s,{title,content}]);
   const popDrill=()=>setDrillStack(s=>s.slice(0,-1));
@@ -118,7 +91,7 @@ export default function App(){
   useEffect(()=>{const code=sessionStorage.getItem("sp_code");if(!code){setLd(false);return}const v=sessionStorage.getItem("sp_verifier"),s=sessionStorage.getItem("sp_client_id");if(!v||!s){setLd(false);return}sessionStorage.removeItem("sp_code");(async()=>{try{const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:s,grant_type:"authorization_code",code,redirect_uri:REDIR,code_verifier:v})});const j=await r.json();if(j.access_token){setTok(j.access_token);localStorage.setItem("sp_client_id",s)}else{setErr(j.error_description||j.error);setLd(false)}}catch(e){setErr(e.message);setLd(false)}})()},[]);
 
   // Chargement principal (dépend de la temporalité)
-  useEffect(()=>{if(!tok)return;setLd(true);setErr(null);setLm("Récupération…");(async()=>{try{
+  useEffect(()=>{if(!tok)return;const myRun=++runId.current;setLd(true);setErr(null);setLm("Récupération…");(async()=>{try{
     const isRecent=tr==="recent";
     const[a1,a2,t1,t2,rec,prof]=await Promise.all([
       isRecent?Promise.resolve({items:[]}):sp(`/me/top/artists?limit=50&offset=0&time_range=${tr}`,tok),
@@ -145,11 +118,12 @@ export default function App(){
       tA=[...(a1.items||[]),...(a2.items||[])];tT=[...(t1.items||[]),...(t2.items||[])];
     }
     const avgDur=tT.length>0?tT.reduce((s,t)=>s+(t.duration_ms||0),0)/tT.length/60000:0;
+    if(runId.current!==myRun)return;
     setData({tA,tT,ri,prof,abt,tbp,hr,avgDur,isRecent});setLd(false);
     const cached={};tA.forEach(a=>{if(mbCache.current[a.id])cached[a.id]=mbCache.current[a.id]});setMb(cached);
     const toFetch=tA.filter(a=>!mbCache.current[a.id]);setMbT(tA.length);setMbP(tA.length-toFetch.length);
-    if(toFetch.length>0){setMbL(true);for(const a of toFetch){const r=await fetchMB(a.name);const v=r||{genres:[],country:null,countryCode:null};mbCache.current[a.id]=v;setMb(prev=>({...prev,[a.id]:v}));setMbP(p=>p+1);await new Promise(r=>setTimeout(r,1500))}setMbL(false)}
-  }catch(e){setErr(e.message);setLd(false)}})()},[tok,tr]);
+    if(toFetch.length>0){setMbL(true);for(const a of toFetch){if(runId.current!==myRun)return;const r=await fetchMB(a.name);if(runId.current!==myRun)return;const v=r||{genres:[],country:null,countryCode:null};mbCache.current[a.id]=v;setMb(prev=>({...prev,[a.id]:v}));setMbP(p=>p+1);await new Promise(r=>setTimeout(r,1500))}setMbL(false)}
+  }catch(e){if(runId.current===myRun){setErr(e.message);setLd(false)}}})()},[tok,tr]);
 
   // Playlists : effet ISOLÉ (résiste si le chargement top échoue, retries via sp)
   useEffect(()=>{if(!tok)return;let live=true;(async()=>{try{const[p1,p2]=await Promise.all([sp("/me/playlists?limit=50&offset=0",tok),sp("/me/playlists?limit=50&offset=50",tok).catch(()=>({items:[]}))]);if(live){setPls([...(p1.items||[]),...(p2.items||[])]);setPlCounts({})}}catch{}})();return()=>{live=false}},[tok]);
@@ -213,15 +187,16 @@ export default function App(){
   tA.forEach(a=>{const m=mb[a.id];if(!m)return;(m.genres||[]).forEach(g=>{gc[g]=(gc[g]||0)+1;if(!abg[g])abg[g]=[];abg[g].push(a)});if(m.country){cc[m.country]=(cc[m.country]||0)+1;if(!abc[m.country])abc[m.country]=[];abc[m.country].push(a)}if(m.countryCode){ccByCode[m.countryCode]=(ccByCode[m.countryCode]||0)+1;if(!abcByCode[m.countryCode])abcByCode[m.countryCode]=[];abcByCode[m.countryCode].push(a)}});
   const allG=Object.entries(gc).sort((a,b)=>b[1]-a[1]).map(([n,c])=>({name:n,count:c}));
   const allC=Object.entries(cc).sort((a,b)=>b[1]-a[1]).map(([n,c])=>({name:n,count:c}));
-  const treeData=allG.map((g,i)=>({name:g.name,size:g.count,count:g.count,fill:CL[i%CL.length]}));
   const maxC=allC.length?Math.max(...allC.map(c=>c.count)):1;
   const gph=hr.map((_,idx)=>{const ht=ri.filter(i=>new Date(i.played_at).getHours()===idx);const hgc={};ht.forEach(i=>(i.track?.artists||[]).forEach(a=>{const m=mb[a.id];if(m&&m.genres?.length)m.genres.forEach(g=>{hgc[g]=(hgc[g]||0)+1})}));const top=Object.entries(hgc).sort((a,b)=>b[1]-a[1])[0];return{h:`${idx}h`,genre:top?top[0]:"—",nb:hr[idx].nb}}).filter(h=>h.nb>0);
   const hGenres=[...new Set(gph.map(h=>h.genre).filter(g=>g!=="—"))];
   const enr=Object.keys(mb).length;const TL={short_term:"4 sem.",medium_term:"6 mois",long_term:"Tout",recent:"50 écoutes"};
   const np=pl?.item;const npMb=np?.artists?.[0]?.id?mb[np.artists[0].id]:null;
-  const tabs=[["overview","📊 Overview"],["artists","🎤 Artistes"],["tracks","🎵 Titres"],["genres","🎨 Genres"],["countries","🌍 Carte"],["similar","✨ Similaires"],["discover","🔮 Découvertes"],["evolution","📈 Évolution"],["habits","🕐 Habitudes",true],["playlists","📋 Playlists"],["player","🎮 Lecteur"],["compat","🤝 Compat"]];
+  const anaTabs=[["overview","📊 Overview"],["artists","🎤 Artistes"],["tracks","🎵 Titres"],["genres","🎨 Genres"],["countries","🌍 Carte"],["similar","✨ Similaires"],["discover","🔮 Découvertes"],["habits","🕐 Récent",true]];
+  const pageTabs=[["evolution","📈 Évolution"],["playlists","📋 Playlists"],["player","🎮 Lecteur"],["compat","🤝 Compat"]];
+  const isPage=pageTabs.some(([k])=>k===tab);
   const nowUri=pl?.context?.uri;
-  const changeTr=k=>{setTr(k);if(tab==="habits"&&k!=="recent")setTab("overview")};
+  const changeTr=k=>{setTr(k);setSimRes([]);simForTr.current=null;if(tab==="habits"&&k!=="recent")setTab("overview")};
 
   const popVals=tA.map(a=>a.popularity).filter(p=>typeof p==="number");
   const obscurity=popVals.length?Math.round(100-popVals.reduce((s,p)=>s+p,0)/popVals.length):null;
@@ -262,9 +237,9 @@ export default function App(){
       [["TOP ARTISTE",a1],["TOP GENRE",g1],["TOP PAYS",c1]].forEach(([lab,val],i)=>{const bx=70+i*(bw+gap);x.fillStyle="#1C1C1C";rr(x,bx,hy,bw,bh,16);x.fill();x.fillStyle="#B3FF5C";x.font="bold 17px monospace";x.fillText(lab,bx+18,hy+34);x.fillStyle="#fff";x.font="bold 25px Inter,Arial,sans-serif";x.fillText(trunc(x,val,bw-36),bx+18,hy+76)});
       hy+=bh+48;
       // Top 5 artistes (premier rang collé au titre)
-      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 ARTISTES",70,hy);hy+=20;
-      tA.slice(0,5).forEach((a,i)=>{const iy=hy+30,im=aImgs[i];if(im)circ(x,im,98,iy,30);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(98,iy,30,0,Math.PI*2);x.fill()}x.fillStyle="#1DB954";x.font="bold 28px monospace";x.fillText(`${i+1}`,148,iy+10);x.fillStyle="#fff";x.font="32px Inter,Arial,sans-serif";x.fillText(trunc(x,a.name,W-260),196,iy+10);hy+=66});
-      hy+=42;
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 ARTISTES",70,hy);hy+=22;
+      tA.slice(0,5).forEach((a,i)=>{const iy=hy+34,im=aImgs[i];if(im)circ(x,im,98,iy,32);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(98,iy,32,0,Math.PI*2);x.fill()}x.fillStyle="#1DB954";x.font="bold 26px monospace";x.fillText(`${i+1}`,150,iy-2);x.fillStyle="#fff";x.font="30px Inter,Arial,sans-serif";x.fillText(trunc(x,a.name,W-280),198,iy-4);const mm=mb[a.id];const sub=[mm&&mm.genres&&mm.genres[0]?tc(mm.genres[0]):null,mm&&mm.country?mm.country:null].filter(Boolean).join("  ·  ");if(sub){x.fillStyle="#888";x.font="19px Inter,Arial,sans-serif";x.fillText(trunc(x,sub,W-280),198,iy+24)}hy+=78});
+      hy+=40;
       // Top 5 titres
       x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TOP 5 TITRES",70,hy);hy+=20;
       tT.slice(0,5).forEach((t,i)=>{const iy=hy+34,im=tImgs[i];if(im)rimg(x,im,68,iy-32,64,10);else{x.fillStyle=CL[i%CL.length];x.fillRect(68,iy-32,64,64)}x.fillStyle="#1DB954";x.font="bold 24px monospace";x.fillText(`${i+1}`,150,iy);x.fillStyle="#fff";x.font="28px Inter,Arial,sans-serif";x.fillText(trunc(x,t.name,W-260),190,iy-6);x.fillStyle="#888";x.font="20px Inter,Arial,sans-serif";x.fillText(trunc(x,(t.artists||[]).map(a=>a.name).join(", "),W-260),190,iy+22);hy+=80});
@@ -327,6 +302,7 @@ export default function App(){
   const genEvo=async()=>{setEvoL(true);try{const rs=["short_term","medium_term","long_term"];const[ar,tk]=await Promise.all([Promise.all(rs.map(r=>sp(`/me/top/artists?limit=30&time_range=${r}`,tok).catch(()=>({items:[]})))),Promise.all(rs.map(r=>sp(`/me/top/tracks?limit=50&time_range=${r}`,tok).catch(()=>({items:[]}))))]);const recA=[...abt].sort((x,y)=>y.plays-x.plays).slice(0,30);const recT=tbp.slice(0,50);setEvoData({short:{artists:ar[0].items||[],tracks:tk[0].items||[]},medium:{artists:ar[1].items||[],tracks:tk[1].items||[]},long:{artists:ar[2].items||[],tracks:tk[2].items||[]},recent:{artists:recA,tracks:recT}})}catch{}setEvoL(false)};
   const artistRecentTracks=id=>{const m={};ri.forEach(i=>{const t=i.track;if(!t)return;if((t.artists||[]).some(a=>a.id===id)){if(!m[t.id])m[t.id]={...t,plays:0};m[t.id].plays++}});return Object.values(m).sort((a,b)=>b.plays-a.plays)};
   const openEvoArtist=(name,id)=>{const trk=artistRecentTracks(id);const content=<div><p style={{color:C.mut,fontSize:12,marginBottom:12}}>{trk.length?`${trk.length} titre(s) dans tes 50 dernières écoutes`:"Aucune lecture dans tes 50 dernières écoutes"}</p>{trk.map(t=><div key={t.id} onClick={()=>play(t.uri)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}>{t.album?.images?.[0]&&<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:4}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div></div><span style={{color:C.acc,fontSize:11,fontFamily:"monospace"}}>{t.plays}x</span></div>)}</div>;pushDrill(name,content)};
+  simFn.current=genSimilar;evoFn.current=genEvo;
 
   // ─── Drill-down (avec pile + retour) ───
   const openDrill=(title,artists)=>{
@@ -351,15 +327,19 @@ export default function App(){
 
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',sans-serif",color:C.txt,padding:"20px 16px 100px",maxWidth:1200,margin:"0 auto"}}>
+      {spin}
       {cur&&<><div onClick={closeDrill} style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",background:"rgba(0,0,0,0.6)",zIndex:999}} /><DrillDown title={cur.title} items={cur.content} onClose={closeDrill} onBack={popDrill} canBack={drillStack.length>1} /></>}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>{prof.images?.[0]&&<img src={prof.images[0].url} alt="" style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.grn}`}} />}<div><h1 style={{margin:0,fontSize:20,fontWeight:700}}>{prof.display_name}</h1><p style={{margin:0,color:C.mut,fontSize:11}}>{TL[tr]}</p></div></div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>{Object.entries(TL).map(([k,l])=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:6}}>{k==="recent"&&<span style={{width:1,height:20,background:C.brd,margin:"0 2px"}} />}<button onClick={()=>changeTr(k)} style={{padding:"6px 14px",borderRadius:50,fontSize:11,background:tr===k?C.grn:C.card,border:`1px solid ${tr===k?C.grn:C.brd}`,color:tr===k?"#000":C.mut,cursor:"pointer",fontWeight:tr===k?700:400}}>{l}</button></span>)}</div>
+        <div style={{display:"flex",gap:6,alignItems:"center",opacity:isPage?0.4:1,pointerEvents:isPage?"none":"auto"}} title={isPage?"La période ne s'applique pas à cette page":""}>{Object.entries(TL).map(([k,l])=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:6}}>{k==="recent"&&<span style={{width:1,height:20,background:C.brd,margin:"0 2px"}} />}<button onClick={()=>changeTr(k)} style={{padding:"6px 14px",borderRadius:50,fontSize:11,background:tr===k?C.grn:C.card,border:`1px solid ${tr===k?C.grn:C.brd}`,color:tr===k?"#000":C.mut,cursor:"pointer",fontWeight:tr===k?700:400}}>{l}</button></span>)}</div>
       </div>
 
-      <div style={{display:"flex",gap:2,marginBottom:20,borderBottom:`1px solid ${C.brd}`,overflowX:"auto"}}>{tabs.map(([k,l,recentOnly])=>{const disabled=recentOnly&&!isRecent;return<button key={k} disabled={disabled} onClick={()=>!disabled&&setTab(k)} title={disabled?"Disponible en mode « 50 écoutes »":""} style={{padding:"10px 12px",background:"none",border:"none",color:disabled?C.dim:tab===k?C.grn:C.mut,borderBottom:`2px solid ${tab===k?C.grn:"transparent"}`,cursor:disabled?"not-allowed":"pointer",fontSize:11,fontWeight:tab===k?600:400,marginBottom:-1,whiteSpace:"nowrap",opacity:disabled?0.5:1}}>{l}</button>})}</div>
-      {mbL&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:C.mut,fontSize:11}}>Enrichissement en cours…</span><span style={{color:C.mut,fontSize:11}}>{mbP}/{mbT}</span></div><div style={{width:"100%",height:3,background:C.brd,borderRadius:2}}><div style={{width:`${(mbP/Math.max(mbT,1))*100}%`,height:"100%",background:C.grn,borderRadius:2,transition:"width 0.5s"}} /></div></div>}
+      <div style={{marginBottom:6,display:"flex",alignItems:"center",gap:8}}><span style={{color:C.mut,fontSize:9,fontFamily:"monospace",letterSpacing:"0.12em",textTransform:"uppercase"}}>Analyse · {TL[tr]}</span></div>
+      <div style={{display:"flex",gap:2,marginBottom:14,borderBottom:`1px solid ${C.brd}`,overflowX:"auto"}}>{anaTabs.map(([k,l,recentOnly])=>{const disabled=recentOnly&&!isRecent;return<button key={k} disabled={disabled} onClick={()=>!disabled&&setTab(k)} title={disabled?"Disponible en mode « 50 écoutes »":""} style={{padding:"10px 12px",background:"none",border:"none",color:disabled?C.dim:tab===k?C.grn:C.mut,borderBottom:`2px solid ${tab===k?C.grn:"transparent"}`,cursor:disabled?"not-allowed":"pointer",fontSize:11,fontWeight:tab===k?600:400,marginBottom:-1,whiteSpace:"nowrap",opacity:disabled?0.5:1}}>{l}</button>})}</div>
+      <div style={{marginBottom:6}}><span style={{color:C.mut,fontSize:9,fontFamily:"monospace",letterSpacing:"0.12em",textTransform:"uppercase"}}>Pages · indépendantes de la période</span></div>
+      <div style={{display:"flex",gap:8,marginBottom:20,overflowX:"auto",paddingBottom:2}}>{pageTabs.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{padding:"8px 16px",borderRadius:50,background:tab===k?C.grn:C.card,border:`1px solid ${tab===k?C.grn:C.brd}`,color:tab===k?"#000":C.mut,cursor:"pointer",fontSize:11,fontWeight:tab===k?700:500,whiteSpace:"nowrap"}}>{l}</button>)}</div>
+      {mbL&&<div style={{marginBottom:14,background:C.card,border:`1px solid ${C.brd}`,borderRadius:12,padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite",flexShrink:0}} /><span style={{color:C.mut,fontSize:12,whiteSpace:"nowrap"}}>Enrichissement des genres &amp; pays… ({mbT} artistes)</span><div style={{flex:1,height:6,background:C.brd,borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(100,(mbP/Math.max(mbT,1))*100)}%`,height:"100%",background:C.grn,borderRadius:3,transition:"width 0.4s"}} /></div></div>}
 
       {/* OVERVIEW */}
       {tab==="overview"&&<>
@@ -395,15 +375,15 @@ export default function App(){
       {tab==="tracks"&&<><Card><Lbl>{isRecent?"Titres les plus écoutés récemment":`Top ${tT.length} titres`}</Lbl><div style={{maxHeight:800,overflowY:"auto"}}>{tT.map((t,i)=>{const d=t.duration_ms?`${Math.floor(t.duration_ms/60000)}:${String(Math.floor((t.duration_ms%60000)/1000)).padStart(2,"0")}`:"";return<div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>play(t.uri)}><span style={{color:C.mut,fontSize:10,width:24,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span>{t.album?.images?.[0]?<img src={t.album.images[t.album.images.length>1?1:0].url} alt="" style={{width:32,height:32,borderRadius:4}} />:<div style={{width:32,height:32,borderRadius:4,background:C.dim}} />}<div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div><div style={{color:C.mut,fontSize:9}}>{(t.artists||[]).map(a=>a.name).join(", ")}</div></div>{isRecent&&t.plays?<span style={{color:C.acc,fontSize:10,fontFamily:"monospace"}}>{t.plays}x</span>:<div style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{d}</div>}</div>})}</div></Card></>}
 
       {/* GENRES — treemap */}
-      {tab==="genres"&&(allG.length>0?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-        <Card><Lbl>Genres ({allG.length})</Lbl><p style={{color:C.mut,fontSize:10,marginTop:-8,marginBottom:10}}>Taille = nombre d'artistes. Clique un bloc pour le détail.</p><ResponsiveContainer width="100%" height={Math.max(360,Math.min(560,allG.length*26))}><Treemap data={treeData} dataKey="size" stroke={C.bg} isAnimationActive={false} content={<TreemapCell/>} onClick={node=>{const nm=node?.name;if(nm&&abg[nm])openDrill(tc(nm),abg[nm])}} /></ResponsiveContainer></Card>
-        <Card><Lbl>Classement ({allG.length})</Lbl><div style={{maxHeight:600,overflowY:"auto"}}>{allG.map((g,i)=><div key={g.name} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(tc(g.name),abg[g.name]||[])}><span style={{color:i<3?C.grn:C.mut,fontSize:11,width:26,textAlign:"right",fontFamily:"monospace",fontWeight:i<3?700:400}}>{i+1}</span><div style={{flex:1,color:C.txt,fontSize:12}}>{tc(g.name)}</div><span style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{g.count}</span></div>)}</div></Card>
-      </div>:<Card><p style={{color:C.mut,textAlign:"center"}}>{mbL?`Enrichissement ${mbP}/${mbT}`:"Pas de données"}</p></Card>)}
+      {tab==="genres"&&(allG.length>0?<div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:16}}>
+        <Card><Lbl>Top genres ({allG.length})</Lbl><p style={{color:C.mut,fontSize:10,marginTop:-8,marginBottom:14}}>Nombre d'artistes par genre. Clique une barre pour le détail.</p><ResponsiveContainer width="100%" height={Math.max(360,Math.min(820,allG.slice(0,25).length*30))}><BarChart data={allG.slice(0,25).map(g=>({name:tc(g.name),raw:g.name,count:g.count}))} layout="vertical" margin={{left:8,right:24}}><XAxis type="number" tick={{fill:C.mut,fontSize:10}} axisLine={false} tickLine={false} allowDecimals={false} /><YAxis type="category" dataKey="name" tick={{fill:C.txt,fontSize:11}} axisLine={false} tickLine={false} width={150} /><Tooltip contentStyle={{background:C.bg,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt}} cursor={{fill:"rgba(255,255,255,0.04)"}} formatter={v=>[`${v} artistes`,""]} /><Bar dataKey="count" radius={[0,6,6,0]} cursor="pointer" onClick={(d)=>{if(d&&abg[d.raw])openDrill(tc(d.raw),abg[d.raw])}}>{allG.slice(0,25).map((_,i,arr)=><Cell key={i} fill={lerpHex("1DB954","B3FF5C",arr.length>1?i/(arr.length-1):0)} />)}</Bar></BarChart></ResponsiveContainer></Card>
+        <Card><Lbl>Classement complet ({allG.length})</Lbl><div style={{maxHeight:780,overflowY:"auto"}}>{allG.map((g,i)=><div key={g.name} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}} onClick={()=>openDrill(tc(g.name),abg[g.name]||[])}><span style={{color:i<3?C.grn:C.mut,fontSize:11,width:26,textAlign:"right",fontFamily:"monospace",fontWeight:i<3?700:400}}>{i+1}</span><div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tc(g.name)}</div><div style={{height:4,marginTop:3,borderRadius:2,background:lerpHex("1DB954","B3FF5C",allG.length>1?Math.min(1,i/24):0),opacity:0.7,width:`${(g.count/allG[0].count)*100}%`}} /></div><span style={{color:C.mut,fontSize:10,fontFamily:"monospace"}}>{g.count}</span></div>)}</div></Card>
+      </div>:<Card><p style={{color:C.mut,textAlign:"center"}}>{mbL?`Enrichissement ${Math.min(mbP,mbT)}/${mbT}`:"Pas de données"}</p></Card>)}
 
       {/* CARTE */}
       {tab==="countries"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <Card style={{position:"relative"}}><Lbl>Carte ({allC.length} pays)</Lbl>
-          {allC.length===0&&<p style={{color:C.mut,textAlign:"center"}}>{mbL?`Enrichissement ${mbP}/${mbT}`:"Pas de données"}</p>}
+          {allC.length===0&&<p style={{color:C.mut,textAlign:"center"}}>{mbL?`Enrichissement ${Math.min(mbP,mbT)}/${mbT}`:"Pas de données"}</p>}
           <div style={{position:"relative"}}>
             <ComposableMap projection="geoEqualEarth" projectionConfig={{scale:150}} style={{width:"100%",height:"auto"}}>
               <ZoomableGroup center={[10,15]} zoom={1} maxZoom={6}>
@@ -425,8 +405,8 @@ export default function App(){
 
       {/* SIMILAIRES (You might also like) */}
       {tab==="similar"&&<div>
-        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 10 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div><button onClick={genSimilar} disabled={simL||mbL} style={{padding:"10px 18px",background:simL||mbL?C.brd:C.grn,border:"none",borderRadius:50,color:simL||mbL?C.mut:"#000",fontSize:12,fontWeight:700,cursor:simL||mbL?"default":"pointer"}}>{simL?"Recherche…":mbL?"Patiente…":"Trouver"}</button></div></Card>
-        {simRes.length===0&&!simL&&<Card><p style={{color:C.mut,textAlign:"center",fontSize:12}}>Clique « Trouver » pour générer des suggestions.</p></Card>}
+        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 10 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div>{(simL||mbL)&&<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>}</div></Card>
+        {simRes.length===0&&!simL&&!mbL&&<Card><p style={{color:C.mut,textAlign:"center",fontSize:12}}>Aucune suggestion trouvée pour cette sélection.</p></Card>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{simRes.map((s,si)=><Card key={si} style={{padding:16,background:C.sf}}><div style={{marginBottom:10}}><span style={{color:C.mut,fontSize:10}}>Similaire à</span><div style={{color:C.acc,fontSize:14,fontWeight:700}}>{s.base}</div><div style={{color:C.mut,fontSize:9}}>{tc(s.genre)}{s.country?` · ${s.country}`:""}</div></div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[(si*5+ai)%CL.length]} />)}</Card>)}</div>
       </div>}
 
@@ -435,15 +415,49 @@ export default function App(){
 
       {/* ÉVOLUTION */}
       {tab==="evolution"&&<div>
-        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>Évolution des goûts</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Top 30 artistes & top 50 titres sur les 3 périodes + tes 50 dernières écoutes.</p></div><button onClick={genEvo} disabled={evoL} style={{padding:"10px 18px",background:evoL?C.brd:C.grn,border:"none",borderRadius:50,color:evoL?C.mut:"#000",fontSize:12,fontWeight:700,cursor:evoL?"default":"pointer"}}>{evoL?"Chargement…":"Comparer"}</button></div></Card>
-        {evoData&&<>
-          <div style={{display:"flex",gap:6,marginBottom:14}}>{[["artists","Artistes (top 30)"],["tracks","Titres (top 50)"]].map(([k,l])=><button key={k} onClick={()=>setEvoView(k)} style={{padding:"7px 16px",borderRadius:50,fontSize:12,background:evoView===k?C.grn:C.card,border:`1px solid ${evoView===k?C.grn:C.brd}`,color:evoView===k?"#000":C.mut,cursor:"pointer",fontWeight:evoView===k?700:400}}>{l}</button>)}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>{[["short","4 semaines"],["medium","6 mois"],["long","Tout le temps"],["recent","50 écoutes"]].map(([k,l])=>{const list=(evoData[k]||{})[evoView]||[];return<Card key={k} style={{padding:16}}><Lbl>{l}</Lbl><div style={{maxHeight:560,overflowY:"auto"}}>{list.map((it,i)=>{const inOthers=Object.entries(evoData).some(([kk,v])=>kk!==k&&((v||{})[evoView]||[]).some(x=>x.id===it.id));
-            if(evoView==="artists")return<div key={it.id+"-"+k} onClick={()=>openEvoArtist(it.name,it.id)} title="Voir les titres joués" style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span title="Spécifique à cette colonne" style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
-            return<div key={it.id+"-"+k} onClick={()=>play(it.uri)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div><div style={{color:C.mut,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.artists||[]).map(a=>a.name).join(", ")}</div></div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
-          })}</div></Card>})}</div>
-          <p style={{color:C.mut,fontSize:10,marginTop:10}}>« NEW » = présent dans cette colonne mais dans aucune des autres. {evoView==="artists"&&"Clique un artiste pour voir ses titres joués récemment et le nombre de lectures."} La colonne « 50 écoutes » vient de l'historique récent.</p>
-        </>}
+        <Card style={{marginBottom:16}}><Lbl>Évolution des goûts</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Comparaison automatique de tes tops (30 artistes / 50 titres) sur les 3 périodes Spotify + tes 50 dernières écoutes.</p></Card>
+        {!evoData&&<Card><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:30}}><div style={{width:18,height:18,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:13}}>Analyse en cours…</span></div></Card>}
+        {evoData&&(()=>{
+          const aList=k=>(evoData[k]?.artists)||[];
+          const idName={};["short","medium","long","recent"].forEach(k=>aList(k).forEach(a=>{if(!idName[a.id])idName[a.id]=a.name}));
+          const rankOf=(k,id)=>{const arr=aList(k);const i=arr.findIndex(a=>a.id===id);return i<0?null:i+1};
+          const setOf=k=>new Set(aList(k).map(a=>a.id));
+          const sShort=setOf("short"),sMed=setOf("medium"),sLong=setOf("long"),sRec=setOf("recent");
+          const newArtists=[...sShort].filter(id=>!sLong.has(id));
+          const goneArtists=[...sLong].filter(id=>!sShort.has(id));
+          const stable=[...sShort].filter(id=>sMed.has(id)&&sLong.has(id));
+          const discoveries=[...sRec].filter(id=>!sShort.has(id)&&!sMed.has(id)&&!sLong.has(id));
+          const inBoth=[...sShort].filter(id=>sLong.has(id));
+          const movers=inBoth.map(id=>({id,name:idName[id],delta:rankOf("long",id)-rankOf("short",id)}));
+          const risers=movers.filter(m=>m.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,6);
+          const fallers=movers.filter(m=>m.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,6);
+          const allThree=Object.keys(idName).filter(id=>rankOf("short",id)&&rankOf("medium",id)&&rankOf("long",id));
+          const picked=allThree.map(id=>({id,name:idName[id],best:Math.min(rankOf("short",id),rankOf("medium",id),rankOf("long",id))})).sort((a,b)=>a.best-b.best).slice(0,8);
+          const maxRank=Math.max(2,...picked.flatMap(p=>["short","medium","long"].map(k=>rankOf(k,p.id)||0)));
+          const chartData=[["short","4 sem"],["medium","6 mois"],["long","Tout"]].map(([k,l])=>{const row={p:l};picked.forEach(pk=>row[pk.id]=rankOf(k,pk.id));return row});
+          return<>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:16}}>
+              <SC label="Émergents" value={newArtists.length} sub="dans 4 sem, absents de Tout" icon="🌱" />
+              <SC label="Valeurs sûres" value={stable.length} sub="présents sur les 3 périodes" icon="🪨" />
+              <SC label="En recul" value={goneArtists.length} sub="dans Tout, sortis du 4 sem" icon="📉" />
+              <SC label="Découvertes" value={discoveries.length} sub="50 écoutes, hors tops" icon="✨" />
+            </div>
+            <Card style={{marginBottom:16}}><Lbl>Progression de rang — top 8 artistes constants</Lbl><p style={{color:C.mut,fontSize:10,marginTop:-8,marginBottom:12}}>Position dans tes tops à travers le temps (plus haut = mieux classé). Les artistes présents sur les 3 périodes.</p>
+              {picked.length>0?<ResponsiveContainer width="100%" height={360}><LineChart data={chartData} margin={{left:0,right:20,top:8,bottom:0}}><XAxis dataKey="p" tick={{fill:C.txt,fontSize:12}} axisLine={false} tickLine={false} /><YAxis reversed allowDecimals={false} domain={[1,maxRank]} tick={{fill:C.mut,fontSize:10}} axisLine={false} tickLine={false} width={28} label={{value:"rang",angle:-90,position:"insideLeft",fill:C.mut,fontSize:10}} /><Tooltip contentStyle={{background:C.bg,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:11}} formatter={(v,n)=>[`#${v}`,n]} /><Legend wrapperStyle={{fontSize:10,color:C.mut}} iconSize={8} />{picked.map((pk,i)=><Line key={pk.id} type="monotone" dataKey={pk.id} name={pk.name} stroke={CL[i%CL.length]} strokeWidth={2.5} dot={{r:3}} activeDot={{r:5}} connectNulls />)}</LineChart></ResponsiveContainer>:<p style={{color:C.mut,fontSize:12,textAlign:"center",padding:20}}>Pas assez d'artistes communs aux 3 périodes pour tracer la progression.</p>}
+            </Card>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+              <Card><Lbl>📈 En hausse</Lbl><p style={{color:C.mut,fontSize:10,marginTop:-8,marginBottom:10}}>Mieux classés sur 4 sem que sur Tout.</p>{risers.length?risers.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`}}><span style={{color:C.grn,fontSize:14,width:20}}>↑</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div><span style={{color:C.grn,fontSize:11,fontFamily:"monospace"}}>+{m.delta}</span></div>):<p style={{color:C.mut,fontSize:11}}>—</p>}</Card>
+              <Card><Lbl>📉 En baisse</Lbl><p style={{color:C.mut,fontSize:10,marginTop:-8,marginBottom:10}}>Mieux classés sur Tout que sur 4 sem.</p>{fallers.length?fallers.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`}}><span style={{color:C.red,fontSize:14,width:20}}>↓</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div><span style={{color:C.red,fontSize:11,fontFamily:"monospace"}}>{m.delta}</span></div>):<p style={{color:C.mut,fontSize:11}}>—</p>}</Card>
+            </div>
+            <Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}><Lbl>Comparaison détaillée</Lbl><div style={{display:"flex",gap:6}}>{[["artists","Artistes"],["tracks","Titres"]].map(([k,l])=><button key={k} onClick={()=>setEvoView(k)} style={{padding:"6px 14px",borderRadius:50,fontSize:11,background:evoView===k?C.grn:C.sf,border:`1px solid ${evoView===k?C.grn:C.brd}`,color:evoView===k?"#000":C.mut,cursor:"pointer",fontWeight:evoView===k?700:400}}>{l}</button>)}</div></div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:12}}>{[["short","4 semaines"],["medium","6 mois"],["long","Tout le temps"],["recent","50 écoutes"]].map(([k,l])=>{const list=(evoData[k]||{})[evoView]||[];return<div key={k}><div style={{color:C.acc,fontSize:11,fontFamily:"monospace",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:8}}>{l}</div><div style={{maxHeight:480,overflowY:"auto"}}>{list.map((it,i)=>{const inOthers=Object.entries(evoData).some(([kk,v])=>kk!==k&&((v||{})[evoView]||[]).some(z=>z.id===it.id));
+                if(evoView==="artists")return<div key={it.id+"-"+k} onClick={()=>openEvoArtist(it.name,it.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
+                return<div key={it.id+"-"+k} onClick={()=>play(it.uri)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.mut,fontSize:10,width:18,textAlign:"right",fontFamily:"monospace"}}>{i+1}</span><div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div><div style={{color:C.mut,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(it.artists||[]).map(a=>a.name).join(", ")}</div></div>{k==="recent"&&it.plays&&<span style={{color:C.acc,fontSize:9,fontFamily:"monospace"}}>{it.plays}x</span>}{!inOthers&&<span style={{color:C.acc,fontSize:9,fontWeight:700}}>NEW</span>}</div>;
+              })}</div></div>})}</div>
+              <p style={{color:C.mut,fontSize:10,marginTop:12}}>« NEW » = présent dans cette colonne mais dans aucune des autres. {evoView==="artists"&&"Clique un artiste pour voir ses titres récents et le nombre de lectures."}</p>
+            </Card>
+          </>;
+        })()}
       </div>}
 
       {/* RÉCENT — toutes les analyses basées sur les 50 dernières écoutes, indépendant de la période */}
