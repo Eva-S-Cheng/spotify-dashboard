@@ -40,7 +40,7 @@ async function fetchMB(name){
 async function searchMBA(tags,cc,lim=15){
   try{const arr=(Array.isArray(tags)?tags:[tags]).filter(Boolean);if(!arr.length)return[];const tq=arr.map(t=>`tag:"${t}"`).join(" AND ");const q=cc?`${tq} AND country:${cc}`:tq;const r=await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(q)}&limit=${lim}&fmt=json`,{headers:{"User-Agent":"SpotifyDash/1.0"}});if(!r.ok)return[];const d=await r.json();return(d.artists||[]).filter(a=>a.score>70).map(a=>({name:a.name,country:a.country?ISO[a.country]||a.country:null,tags:(a.tags||[]).sort((x,y)=>(y.count||0)-(x.count||0)).map(t=>t.name).filter(isGenre).slice(0,3)}))}catch{return[]}}
 
-async function enrichSug(groups,tok){const out=[];for(const g of groups){const ea=[];for(const a of g.artists){try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok);const s=r?.artists?.items?.[0];ea.push({...a,sid:s?.id,img:s?.images?.[0]?.url})}catch{ea.push({...a,sid:null,img:null})}}out.push({...g,artists:ea})}return out}
+async function enrichSug(groups,tok,gap=320){const out=[];for(const g of groups){const ea=[];for(const a of g.artists){try{const r=await sp(`/search?q=${encodeURIComponent(a.name)}&type=artist&limit=1`,tok);const s=r?.artists?.items?.[0];ea.push({...a,sid:s?.id,img:s?.images?.[0]?.url})}catch{ea.push({...a,sid:null,img:null})}await new Promise(r=>setTimeout(r,gap))}out.push({...g,artists:ea})}return out}
 
 // ─── THEME ───
 const C={bg:"#0D0D0D",sf:"#161616",card:"#1C1C1C",brd:"#2A2A2A",grn:"#1DB954",txt:"#FFF",mut:"#888",acc:"#B3FF5C",dim:"#333",red:"#FF6B6B"};
@@ -106,10 +106,9 @@ export default function App(){
   const[evoData,setEvoData]=useState(null);const[evoL,setEvoL]=useState(false);const[evoView,setEvoView]=useState("artists");
   const[selGenre,setSelGenre]=useState(null);const[selCountry,setSelCountry]=useState(null);
   const pi=useRef(null);const lastCtx=useRef(null);const tabRef=useRef("overview");
-  const runId=useRef(0);const simFn=useRef(null),evoFn=useRef(null),simForTr=useRef(null),evoRun=useRef(false);
+  const runId=useRef(0);const simFn=useRef(null),evoFn=useRef(null),simForTr=useRef(null),evoRun=useRef(false),discForTr=useRef(null);
   useEffect(()=>{tabRef.current=tab},[tab]);
-  // Auto-génération (sans bouton) quand on ouvre l'onglet
-  useEffect(()=>{if(tab==="similar"&&!mbL&&!simL&&data&&Object.keys(mb).length>0&&simForTr.current!==tr){simForTr.current=tr;simFn.current&&simFn.current()}},[tab,mbL,tr,data,mb,simL]);
+  // Auto-génération uniquement pour Évolution (léger). Similaires & Découvertes = bouton manuel.
   useEffect(()=>{if(tab==="evolution"&&!evoL&&!evoRun.current&&data&&tok){evoRun.current=true;evoFn.current&&evoFn.current()}},[tab,evoL,data,tok]);
 
   const pushDrill=(title,content)=>setDrillStack(s=>[...s,{title,content}]);
@@ -162,18 +161,19 @@ export default function App(){
   // Nombre de titres manquants — seulement sur l'onglet Playlists, lentement
   useEffect(()=>{if(tab!=="playlists"||!tok||!pls.length)return;const missing=pls.filter(p=>typeof p.tracks?.total!=="number"&&plCounts[p.id]===undefined).slice(0,40);if(!missing.length)return;let live=true;(async()=>{for(const p of missing){if(!live)return;try{const r=await sp(`/playlists/${p.id}?fields=tracks.total`,tok);if(live&&r?.tracks&&typeof r.tracks.total==="number")setPlCounts(c=>({...c,[p.id]:r.tracks.total}))}catch{}await new Promise(r=>setTimeout(r,500))}})();return()=>{live=false}},[tab,pls,tok]);
 
-  // Suggestions auto
-  useEffect(()=>{
-    if(mbL||!data||!tok||Object.keys(mb).length===0)return;
+  // Découvertes — génération manuelle (bouton)
+  const genDiscover=async()=>{
+    if(!data||!tok||mbL||Object.keys(mb).length===0||sugL)return;
     const{tA,tT,ri}=data;const known=new Set();tA.forEach(a=>known.add(a.name.toLowerCase()));tT.forEach(t=>(t.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));ri.forEach(i=>(i.track?.artists||[]).forEach(a=>known.add(a.name.toLowerCase())));
     const combos={};tA.forEach(a=>{const m=mb[a.id];if(!m||!m.countryCode||!m.genres?.length)return;m.genres.forEach(g=>{const k=`${g}|||${m.countryCode}`;if(!combos[k])combos[k]={genre:g,code:m.countryCode,country:m.country,count:0};combos[k].count++})});
     const topC=Object.values(combos).sort((a,b)=>b.count-a.count).slice(0,5);
     const gO={};tA.forEach(a=>{const m=mb[a.id];if(!m||!m.genres?.length)return;m.genres.forEach(g=>{gO[g]=(gO[g]||0)+1})});
     const topG=Object.entries(gO).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([g])=>({genre:g,code:null,country:null}));
     if(topC.length===0&&topG.length===0)return;
-    setSugL(true);
-    (async()=>{const results=[];for(const c of[...topC,...topG].slice(0,6)){const artists=await searchMBA(c.genre,c.code,20);const f=artists.filter(a=>!known.has(a.name.toLowerCase()));if(f.length>0)results.push({genre:c.genre,country:c.country,artists:f.slice(0,8)});await new Promise(r=>setTimeout(r,2000))}const e=await enrichSug(results,tok);setSug(e);setSugL(false)})();
-  },[mb,mbL]);
+    setSugL(true);setSug([]);
+    const results=[];for(const c of[...topC,...topG].slice(0,6)){const artists=await searchMBA(c.genre,c.code,20);const f=artists.filter(a=>!known.has(a.name.toLowerCase()));if(f.length>0)results.push({genre:c.genre,country:c.country,artists:f.slice(0,8)});await new Promise(r=>setTimeout(r,1800))}
+    const e=await enrichSug(results,tok);setSug(e);setSugL(false);
+  };
 
   useEffect(()=>{if(!tok)return;
     const f=async()=>{
@@ -237,7 +237,7 @@ export default function App(){
   const pageTabs=[["evolution","📈 Évolution"],["playlists","📋 Playlists"],["player","🎮 Lecteur"],["compat","🤝 Compat"]];
   const isPage=pageTabs.some(([k])=>k===tab);
   const nowUri=pl?.context?.uri;
-  const changeTr=k=>{setTr(k);setSimRes([]);simForTr.current=null;if(isPage||(tab==="habits"&&k!=="recent"))setTab("overview")};
+  const changeTr=k=>{setTr(k);setSimRes([]);simForTr.current=null;setSug([]);discForTr.current=null;if(isPage||(tab==="habits"&&k!=="recent"))setTab("overview")};
 
   const popVals=tA.map(a=>a.popularity).filter(p=>typeof p==="number");
   const obscurity=popVals.length?Math.round(100-popVals.reduce((s,p)=>s+p,0)/popVals.length):null;
@@ -362,8 +362,8 @@ export default function App(){
 
   const SugRow=({a,fb})=>(<div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.brd}`}}>
     <div onClick={()=>a.sid&&playArtTop(a.sid)} title={a.sid?"Lire le 1er titre":""} style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0,cursor:a.sid?"pointer":"default"}}>
-      {a.img?<img src={a.img} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:38,height:38,borderRadius:"50%",background:fb,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#000",fontWeight:700}}>{a.name[0]}</div>}
-      <div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{(a.tags||[]).map(tc).join(", ")}</div></div>
+      {a.img?<img src={a.img} alt="" style={{width:38,height:38,borderRadius:"50%",objectFit:"cover"}} />:<div style={{width:38,height:38,borderRadius:"50%",background:fb,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#000",fontWeight:700}}>{(a.name||"?")[0].toUpperCase()}</div>}
+      <div style={{flex:1,minWidth:0}}><div style={{color:C.txt,fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{color:C.mut,fontSize:9}}>{(a.tags||[]).map(tc).join(", ")}{a.country?` · ${a.country}`:""}</div></div>
       {a.sid&&<span style={{color:C.grn,fontSize:11}}>▶</span>}
     </div>
     {a.sid&&<a href={`https://open.spotify.com/artist/${a.sid}`} target="_blank" rel="noreferrer" title="Page Spotify" onClick={e=>e.stopPropagation()} style={{color:C.acc,fontSize:14,textDecoration:"none",padding:"4px 6px"}}>↗</a>}
@@ -453,13 +453,13 @@ export default function App(){
 
       {/* SIMILAIRES (You might also like) */}
       {tab==="similar"&&<div>
-        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 10 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div>{(simL||mbL)&&<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>}</div></Card>
-        {simRes.length===0&&!simL&&!mbL&&<Card><p style={{color:C.mut,textAlign:"center",fontSize:12}}>Aucune suggestion trouvée pour cette sélection.</p></Card>}
+        <Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}><div><Lbl>You might also like</Lbl><p style={{color:C.mut,fontSize:12,margin:0}}>Artistes proches de ton top 10 ({TL[tr]}) : croisement genres 1 + 2 + pays, repli sur le 1er genre si besoin.</p></div>{(simL||mbL)?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>:<button onClick={genSimilar} style={{padding:"10px 18px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{simRes.length?"↻ Relancer":"Lancer la recherche"}</button>}</div></Card>
+        {simRes.length===0&&!simL&&!mbL&&<Card><p style={{color:C.mut,textAlign:"center",fontSize:12}}>Clique « Lancer la recherche » pour trouver des artistes similaires.</p></Card>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{simRes.map((s,si)=><Card key={si} style={{padding:16,background:C.sf}}><div style={{marginBottom:10}}><span style={{color:C.mut,fontSize:10}}>Similaire à</span><div style={{color:C.acc,fontSize:14,fontWeight:700}}>{s.base}</div><div style={{color:C.mut,fontSize:9}}>{tc(s.genre)}{s.country?` · ${s.country}`:""}</div></div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[(si*5+ai)%CL.length]} />)}</Card>)}</div>
       </div>}
 
       {/* DÉCOUVERTES */}
-      {tab==="discover"&&<div><Card style={{marginBottom:16}}><Lbl>Suggestions automatiques</Lbl>{sugL&&<p style={{color:C.mut,fontSize:11}}>Recherche en cours…</p>}{sug.length===0&&!sugL&&<p style={{color:C.mut,fontSize:12}}>Disponible après enrichissement.</p>}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>{sug.map((s,si)=><Card key={si} style={{padding:16,background:C.sf}}><div style={{marginBottom:10}}><span style={{color:C.acc,fontSize:13,fontWeight:600}}>{tc(s.genre)}</span>{s.country&&<span style={{color:C.mut,fontSize:10}}> · {s.country}</span>}</div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[(si*5+ai)%CL.length]} />)}</Card>)}</div></Card><Card><Lbl>Recherche personnalisée</Lbl><div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}><select value={cG} onChange={e=>setCG(e.target.value)} style={{flex:1,minWidth:140,padding:10,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}><option value="">Genre…</option>{allG.map(g=><option key={g.name} value={g.name}>{tc(g.name)} ({g.count})</option>)}</select><select value={cC} onChange={e=>setCC(e.target.value)} style={{flex:1,minWidth:140,padding:10,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}><option value="">Tous pays</option>{allC.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><button onClick={customSearch} disabled={!cG||cL2} style={{padding:"10px 20px",background:cG?C.grn:C.brd,border:"none",borderRadius:8,color:cG?"#000":C.mut,fontSize:12,fontWeight:600,cursor:cG?"pointer":"default"}}>{cL2?"…":"Chercher"}</button></div>{cR.map((s,si)=><div key={si}><div style={{color:C.acc,fontSize:13,fontWeight:600,marginBottom:8}}>{tc(s.genre)}{s.country?` · ${s.country}`:""}</div><div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[ai%CL.length]} />)}</div></div>)}</Card></div>}
+      {tab==="discover"&&<div><Card style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:6}}><Lbl>Suggestions par genre & pays</Lbl>{(sugL||mbL)?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:`2px solid ${C.brd}`,borderTopColor:C.grn,borderRadius:"50%",animation:"spin 0.8s linear infinite"}} /><span style={{color:C.mut,fontSize:12}}>{mbL?"Enrichissement…":"Recherche…"}</span></div>:<button onClick={genDiscover} style={{padding:"10px 18px",background:C.grn,border:"none",borderRadius:50,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{sug.length?"↻ Relancer":"Lancer la recherche"}</button>}</div>{sug.length===0&&!sugL&&!mbL&&<p style={{color:C.mut,fontSize:12}}>Clique « Lancer la recherche » pour découvrir des artistes selon tes genres et pays dominants.</p>}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>{sug.map((s,si)=><Card key={si} style={{padding:16,background:C.sf}}><div style={{marginBottom:10}}><span style={{color:C.acc,fontSize:13,fontWeight:600}}>{tc(s.genre)}</span>{s.country&&<span style={{color:C.mut,fontSize:10}}> · {s.country}</span>}</div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[(si*5+ai)%CL.length]} />)}</Card>)}</div></Card><Card><Lbl>Recherche personnalisée</Lbl><div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}><select value={cG} onChange={e=>setCG(e.target.value)} style={{flex:1,minWidth:140,padding:10,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}><option value="">Genre…</option>{allG.map(g=><option key={g.name} value={g.name}>{tc(g.name)} ({g.count})</option>)}</select><select value={cC} onChange={e=>setCC(e.target.value)} style={{flex:1,minWidth:140,padding:10,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:8,color:C.txt,fontSize:12,outline:"none"}}><option value="">Tous pays</option>{allC.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><button onClick={customSearch} disabled={!cG||cL2} style={{padding:"10px 20px",background:cG?C.grn:C.brd,border:"none",borderRadius:8,color:cG?"#000":C.mut,fontSize:12,fontWeight:600,cursor:cG?"pointer":"default"}}>{cL2?"…":"Chercher"}</button></div>{cR.map((s,si)=><div key={si}><div style={{color:C.acc,fontSize:13,fontWeight:600,marginBottom:8}}>{tc(s.genre)}{s.country?` · ${s.country}`:""}</div><div>{s.artists.map((a,ai)=><SugRow key={ai} a={a} fb={CL[ai%CL.length]} />)}</div></div>)}</Card></div>}
 
       {/* ÉVOLUTION */}
       {tab==="evolution"&&<div>
