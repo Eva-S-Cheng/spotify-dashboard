@@ -76,6 +76,10 @@ a{transition:color .15s ease,opacity .15s ease,transform .12s ease}
 input,select,textarea{transition:border-color .15s ease,box-shadow .15s ease}
 input:focus,select:focus,textarea:focus{border-color:rgba(30,215,96,0.55)!important;box-shadow:0 0 0 3px rgba(30,215,96,0.12)}
 ::selection{background:rgba(30,215,96,0.32)}
+.recharts-wrapper,.recharts-surface,.recharts-wrapper *,.recharts-surface *{outline:none!important}
+.recharts-wrapper svg,.recharts-surface{-webkit-tap-highlight-color:transparent}
+.rsm-geography{outline:none!important}
+.rsm-geography:focus{outline:none!important}
 @media (max-width:640px){
 .app-root{padding:14px 12px 116px!important}
 .uc-card{padding:16px!important;border-radius:14px!important}
@@ -152,7 +156,7 @@ export default function App(){
   const[isMobile,setIsMobile]=useState(()=>{if(typeof window==="undefined")return false;const ua=/Mobi|Android|iPhone|iPod|Windows Phone|BlackBerry/i.test(navigator.userAgent||"");return ua||window.innerWidth<=760});
   useEffect(()=>{const ua=/Mobi|Android|iPhone|iPod|Windows Phone|BlackBerry/i.test(navigator.userAgent||"");const f=()=>setIsMobile(ua||window.innerWidth<=760);window.addEventListener("resize",f);return()=>window.removeEventListener("resize",f)},[]);
   MQ=isMobile;
-  const[shareImg,setShareImg]=useState(null);const shareBlobRef=useRef(null);
+  const[shareImg,setShareImg]=useState(null);const shareBlobRef=useRef(null);const[inviteOpen,setInviteOpen]=useState(false);
   const[selGenre,setSelGenre]=useState(null);const[selCountry,setSelCountry]=useState(null);
   const pi=useRef(null);const lastCtx=useRef(null);const tabRef=useRef("overview");
   const runId=useRef(0);const simFn=useRef(null),evoFn=useRef(null),simForTr=useRef(null),evoRun=useRef(false),discForTr=useRef(null);
@@ -362,6 +366,9 @@ export default function App(){
    }catch(e){setToast({ok:false,msg:"Erreur de génération de l'image : "+(e?.message||e)});}
   };
   const closeShare=()=>{if(shareImg)URL.revokeObjectURL(shareImg);setShareImg(null)};
+  const INVITE_TXT="Découvre Your Spotify, Uncovered 🎧 — une analyse complète et stylée de tes écoutes Spotify (top artistes, genres, pays, évolution…). Essaie :";
+  const invite=async()=>{try{if(navigator.share){await navigator.share({title:"Your Spotify, Uncovered",text:INVITE_TXT,url:REDIR});return}}catch(e){if(e&&e.name==="AbortError")return}setInviteOpen(true)};
+  const copyInvite=async()=>{try{await navigator.clipboard.writeText(`${INVITE_TXT} ${REDIR}`);setToast({ok:true,msg:"Lien d'invitation copié ✓"})}catch(e){setToast({ok:false,msg:"Copie impossible — sélectionne le lien manuellement."})}};
   const generateEvoShare=async()=>{
    try{
     if(!evoData){setToast({ok:false,msg:"Ouvre d'abord l'onglet Évolution (attends l'analyse)."});return}
@@ -376,30 +383,42 @@ export default function App(){
     const emergents=[...sS].filter(id=>!sL.has(id)).map(id=>({id,name:idName[id],r:rankOf("short",id)||99})).sort((a,b)=>a.r-b.r).slice(0,5);
     const discos=[...sR].filter(id=>!sS.has(id)&&!sM.has(id)&&!sL.has(id)).map(id=>({id,name:idName[id]})).slice(0,5);
     const risers=[...sS].filter(id=>sL.has(id)).map(id=>({id,name:idName[id],delta:(rankOf("long",id)||0)-(rankOf("short",id)||0)})).filter(m=>m.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,5);
-    const[pImg,sImgs]=await Promise.all([loadImg(prof.images?.[0]?.url),Promise.all(stable.map(s=>loadImg(idImg[s.id])))]);
+    const PK=["long","medium","short","recent"];
+    const[pImg,top1Imgs,emImg]=await Promise.all([loadImg(prof.images?.[0]?.url),Promise.all(PK.map(k=>loadImg(idImg[aL(k)[0]?.id]))),loadImg(emergents[0]?idImg[emergents[0].id]:null)]);
     const rr=(x,px,py,w,h,r)=>{x.beginPath();x.moveTo(px+r,py);x.arcTo(px+w,py,px+w,py+h,r);x.arcTo(px+w,py+h,px,py+h,r);x.arcTo(px,py+h,px,py,r);x.arcTo(px,py,px+w,py,r);x.closePath()};
     const trunc=(x,s,maxW)=>{let v=String(s||"");if(x.measureText(v).width<=maxW)return v;while(v.length>2&&x.measureText(v+"…").width>maxW)v=v.slice(0,-1);return v+"…"};
     const listBlock=(x,title,items,hy,fmt)=>{x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText(title,70,hy);hy+=20;if(!items.length){x.fillStyle="#888";x.font="24px Inter,Arial,sans-serif";x.fillText("—",70,hy+34);return hy+58}items.forEach((it,i)=>{const iy=hy+40;x.fillStyle="#1DB954";x.font="bold 26px monospace";x.fillText(`${i+1}`,70,iy);x.fillStyle="#fff";x.font="30px Inter,Arial,sans-serif";x.fillText(trunc(x,it.name,W-360),120,iy-2);const sub=fmt?fmt(it):"";if(sub){x.fillStyle="#B3FF5C";x.font="22px monospace";x.textAlign="right";x.fillText(sub,W-70,iy-2);x.textAlign="left"}hy+=58});return hy+30};
     const draw=x=>{
-      const H=x.canvas.height;x.textAlign="left";x.fillStyle="#0D0D0D";x.fillRect(0,0,W,H);x.fillStyle="#1DB954";x.fillRect(0,0,W,14);
-      let hy=118;
-      if(pImg){circ(x,pImg,150,hy+8,58);x.strokeStyle="#1DB954";x.lineWidth=5;x.beginPath();x.arc(150,hy+8,58,0,Math.PI*2);x.stroke()}
-      const hx=pImg?240:70;
-      x.fillStyle="#1DB954";x.font="bold 54px Inter,Arial,sans-serif";x.fillText("Your Spotify",hx,hy);
-      x.fillStyle="#fff";x.fillText("Uncovered",hx,hy+60);
-      x.fillStyle="#888";x.font="24px monospace";x.fillText(prof.display_name||"",hx,hy+102);
-      hy+=168;
-      x.font="bold 38px Inter,Arial,sans-serif";const pt="TON ÉVOLUTION";const pw=x.measureText(pt).width+56;
-      x.fillStyle="#B3FF5C";rr(x,70,hy,pw,64,32);x.fill();x.fillStyle="#0D0D0D";x.fillText(pt,98,hy+43);hy+=112;
-      // Valeurs sûres avec rangs
-      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("VALEURS SÛRES",70,hy);hy+=20;
-      if(!stable.length){x.fillStyle="#888";x.font="24px Inter,Arial,sans-serif";x.fillText("Pas encore assez de constance sur les 3 périodes.",70,hy+34);hy+=64}
-      stable.forEach((s,i)=>{const iy=hy+38,im=sImgs[i];if(im)circ(x,im,98,iy,30);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(98,iy,30,0,Math.PI*2);x.fill()}x.fillStyle="#fff";x.font="29px Inter,Arial,sans-serif";x.fillText(trunc(x,s.name,W-200),148,iy-6);const chips=[["TOUT","long"],["6M","medium"],["4S","short"],["50É","recent"]].map(([lab,k])=>{const r=rankOf(k,s.id);return r?`${lab} #${r}`:`${lab} —`}).join("   ");x.fillStyle="#888";x.font="19px monospace";x.fillText(chips,148,iy+22);hy+=78});
-      hy+=30;
-      hy=listBlock(x,"ÉMERGENTS (4 sem, absents de Tout)",emergents,hy,it=>`#${it.r}`);
-      hy=listBlock(x,"PLUS FORTES PROGRESSIONS",risers,hy,it=>`+${it.delta}`);
-      hy=listBlock(x,"DÉCOUVERTES (50 écoutes)",discos,hy,null);
-      x.fillStyle="#888";x.font="22px monospace";x.fillText(`Comparaison Tout · 6 mois · 4 sem · 50 écoutes`,70,hy+6);hy+=20;
+      const H=x.canvas.height;x.textAlign="left";
+      x.fillStyle="#0C0D10";x.fillRect(0,0,W,H);
+      const g=x.createLinearGradient(0,0,W,240);g.addColorStop(0,"rgba(184,255,102,0.15)");g.addColorStop(1,"rgba(30,215,96,0.04)");x.fillStyle=g;x.fillRect(0,0,W,240);
+      x.fillStyle="#B3FF5C";x.fillRect(0,0,W,12);
+      let hy=112;
+      if(pImg){circ(x,pImg,148,hy,54);x.strokeStyle="#B3FF5C";x.lineWidth=4;x.beginPath();x.arc(148,hy,54,0,Math.PI*2);x.stroke()}
+      const hx=pImg?238:70;
+      x.fillStyle="#fff";x.font="bold 30px Inter,Arial,sans-serif";x.fillText(trunc(x,prof.display_name||"",W-hx-70),hx,hy-22);
+      x.fillStyle="#B3FF5C";x.font="bold 58px Inter,Arial,sans-serif";x.fillText("TON ÉVOLUTION",hx,hy+30);
+      x.fillStyle="#888";x.font="21px monospace";x.fillText("Your Spotify, Uncovered",hx,hy+64);
+      hy+=150;
+      x.fillStyle="#B3FF5C";x.font="bold 26px monospace";x.fillText("TON N°1 À TRAVERS LE TEMPS",70,hy);hy+=44;
+      const periods=[["Tout le temps","long"],["6 derniers mois","medium"],["4 dernières semaines","short"],["50 dernières écoutes","recent"]];
+      const nodeX=118,rowH=128,imgR=44;
+      periods.forEach(([lab,k],i)=>{const cy=hy+imgR;const a=aL(k)[0];const im=top1Imgs[i];
+        if(i<periods.length-1){x.strokeStyle="rgba(255,255,255,0.14)";x.lineWidth=3;x.beginPath();x.moveTo(nodeX,cy+imgR+8);x.lineTo(nodeX,cy+rowH-imgR-2);x.stroke();x.fillStyle="#1DB954";const ay=cy+rowH-imgR-2;x.beginPath();x.moveTo(nodeX-8,ay-12);x.lineTo(nodeX+8,ay-12);x.lineTo(nodeX,ay);x.closePath();x.fill()}
+        if(im)circ(x,im,nodeX,cy,imgR);else{x.fillStyle=CL[i%CL.length];x.beginPath();x.arc(nodeX,cy,imgR,0,Math.PI*2);x.fill()}
+        x.strokeStyle="#1DB954";x.lineWidth=3;x.beginPath();x.arc(nodeX,cy,imgR,0,Math.PI*2);x.stroke();
+        x.fillStyle="#888";x.font="17px monospace";x.fillText(lab.toUpperCase(),nodeX+72,cy-14);
+        x.fillStyle="#fff";x.font="bold 34px Inter,Arial,sans-serif";x.fillText(trunc(x,a?a.name:"—",W-nodeX-92),nodeX+72,cy+22);
+        hy+=rowH});
+      hy+=6;
+      if(emergents[0]){const bh=148;x.fillStyle="#12160f";rr(x,70,hy,W-140,bh,20);x.fill();x.strokeStyle="rgba(184,255,102,0.4)";x.lineWidth=2;rr(x,70,hy,W-140,bh,20);x.stroke();const cy=hy+bh/2;if(emImg)circ(x,emImg,152,cy,52);else{x.fillStyle="#B3FF5C";x.beginPath();x.arc(152,cy,52,0,Math.PI*2);x.fill()}x.fillStyle="#B3FF5C";x.font="bold 22px monospace";x.fillText("✦ RÉVÉLATION",238,cy-32);x.fillStyle="#fff";x.font="bold 40px Inter,Arial,sans-serif";x.fillText(trunc(x,emergents[0].name,W-330),238,cy+8);x.fillStyle="#888";x.font="20px Inter,Arial,sans-serif";x.fillText("Nouvelle entrée dans ton top récent",238,cy+40);hy+=bh+40}
+      const colW=(W-140-30)/2,colTop=hy;
+      const col=(cx,title,items,fmt)=>{let yy=colTop;x.fillStyle="#B3FF5C";x.font="bold 24px monospace";x.fillText(title,cx,yy);yy+=44;if(!items.length){x.fillStyle="#666";x.font="22px Inter,Arial,sans-serif";x.fillText("—",cx,yy);yy+=44}items.forEach((it,i)=>{x.fillStyle="#1DB954";x.font="bold 24px monospace";x.fillText(`${i+1}`,cx,yy);const sub=fmt?fmt(it):"";x.fillStyle="#fff";x.font="26px Inter,Arial,sans-serif";x.fillText(trunc(x,it.name,colW-52-(sub?64:0)),cx+40,yy);if(sub){x.fillStyle="#B3FF5C";x.font="20px monospace";x.textAlign="right";x.fillText(sub,cx+colW,yy);x.textAlign="left"}yy+=50});return yy};
+      const y1=col(70,"TES CONSTANTES",stable,null);
+      const y2=col(70+colW+30,"EN ASCENSION",risers,it=>`+${it.delta}`);
+      hy=Math.max(y1,y2)+30;
+      x.fillStyle="#B3FF5C";x.font="bold 24px monospace";x.fillText("DÉCOUVERTES",70,hy);hy+=44;
+      if(discos.length){let cxp=70;x.font="23px Inter,Arial,sans-serif";discos.forEach(d=>{const nm=trunc(x,d.name,W-160);const w=x.measureText(nm).width+44;if(cxp+w>W-70){cxp=70;hy+=54}x.fillStyle="#1C2118";rr(x,cxp,hy-30,w,42,21);x.fill();x.fillStyle="#B3FF5C";x.fillText(nm,cxp+22,hy);cxp+=w+12});hy+=30}else{x.fillStyle="#666";x.font="22px Inter,Arial,sans-serif";x.fillText("—",70,hy);hy+=20}
       return hy;
     };
     const m=document.createElement("canvas");m.width=W;m.height=3600;const finalY=draw(m.getContext("2d"));
@@ -485,7 +504,7 @@ export default function App(){
       {cur&&createPortal(<><div onClick={closeDrill} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:999}} /><DrillDown title={cur.title} items={cur.content} onClose={closeDrill} onBack={popDrill} canBack={drillStack.length>1} /></>,document.body)}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>{prof.images?.[0]&&<img src={prof.images[0].url} alt="" style={{width:46,height:46,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.brd2}`,flexShrink:0}} />}<div><h1 className="uc-h1" style={{margin:0,fontSize:22,fontWeight:600,fontFamily:FD,letterSpacing:"-0.02em"}}>{prof.display_name}</h1><p style={{margin:0,color:C.mut,fontSize:MQ?13:11,letterSpacing:"0.02em"}}>{isPage?(pageTabs.find(([k])=>k===tab)||[])[1]:`Analyse · ${TL[tr]}`}</p></div></div>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>{prof.images?.[0]&&<img src={prof.images[0].url} alt="" style={{width:46,height:46,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.brd2}`,flexShrink:0}} />}<div><h1 className="uc-h1" style={{margin:0,fontSize:22,fontWeight:600,fontFamily:FD,letterSpacing:"-0.02em"}}>{prof.display_name}</h1><p style={{margin:0,color:C.mut,fontSize:MQ?13:11,letterSpacing:"0.02em"}}>{isPage?(pageTabs.find(([k])=>k===tab)||[])[1]:`Analyse · ${TL[tr]}`}</p></div><button onClick={invite} title="Partager le site à un ami" style={{padding:MQ?"8px 12px":"7px 13px",borderRadius:50,border:`1px solid ${C.brd2}`,background:"rgba(255,255,255,0.05)",color:C.txt,fontSize:MQ?13:11.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>✉️ Inviter un ami</button></div>
         <div className="uc-controls" style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
           {Object.entries(TL).map(([k,l])=>{const on=!isPage&&tr===k;return<span key={k} style={{display:"inline-flex",alignItems:"center",gap:6}}>{k==="recent"&&<span style={{width:1,height:18,background:C.brd2,margin:"0 1px"}} />}<button onClick={()=>changeTr(k)} style={{padding:"7px 14px",borderRadius:50,fontSize:MQ?13:11,background:on?`linear-gradient(135deg,${C.grnB},${C.grn})`:"rgba(255,255,255,0.04)",border:`1px solid ${on?"transparent":C.brd}`,color:on?"#04140A":C.mut,cursor:"pointer",fontWeight:on?700:500,boxShadow:on?`0 4px 16px -2px rgba(30,215,96,0.55)`:"none"}}>{l}</button></span>})}
           <span style={{width:1,height:22,background:C.brd2,margin:"0 4px"}} />
@@ -537,7 +556,7 @@ export default function App(){
           {(selGenre||selCountry)&&<><span style={{color:C.mut,fontSize:MQ?13:11}}>Filtre :</span>{selGenre&&<button onClick={()=>setSelGenre(null)} style={{padding:"5px 12px",borderRadius:50,background:C.acc,border:"none",color:"#000",fontSize:MQ?13:11,fontWeight:700,cursor:"pointer"}}>🎨 {tc(selGenre)} ✕</button>}{selCountry&&<button onClick={()=>setSelCountry(null)} style={{padding:"5px 12px",borderRadius:50,background:C.grn,border:"none",color:"#000",fontSize:MQ?13:11,fontWeight:700,cursor:"pointer"}}>🌍 {selCountry} ✕</button>}</>}
         </div>
         <p style={{color:C.mut,fontSize:MQ?12:10,marginTop:-6,marginBottom:14}}>Clique un genre pour filtrer les pays, un pays (carte ou liste) pour filtrer les genres. Reclique le filtre actif pour l'enlever. Le bouton ci-dessus liste les artistes correspondant aux filtres.</p>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16,alignItems:"start"}}>
           {/* Colonne PAYS (carte + liste), filtrée par le genre sélectionné */}
           <Card style={{position:"relative"}}><Lbl>Pays {selGenre?`· ${tc(selGenre)}`:""} ({cAgg.list.length})</Lbl>
             <div style={{position:"relative"}}>
@@ -548,7 +567,7 @@ export default function App(){
                       return <Geography key={geo.rsmKey} geography={geo} fill={active?C.acc:mapColor(count,geoMaxC)} stroke={C.bg} strokeWidth={0.3}
                         onMouseEnter={()=>setHov({name:cname,count})} onMouseLeave={()=>setHov(null)}
                         onClick={()=>{if(count)setSelCountry(selCountry===cname?null:cname)}}
-                        style={{default:{outline:"none",cursor:count?"pointer":"default"},hover:{fill:count?C.acc:C.brd,outline:"none"},pressed:{outline:"none"}}} />;})}
+                        style={{default:{outline:"none",cursor:count?"pointer":"default"},hover:{fill:count?C.acc:C.brd,outline:"none",cursor:count?"pointer":"default"},pressed:{outline:"none",cursor:count?"pointer":"default"}}} />;})}
                   </Geographies>
                 </ZoomableGroup>
               </ComposableMap>
@@ -606,13 +625,14 @@ export default function App(){
               <SC label="Découvertes" value={discoveries.length} sub="50 écoutes, hors tops · voir" icon="✨" onClick={()=>openNames("Découvertes (50 écoutes, hors tops)",mk(discoveries))} />
             </div>
             <Card style={{marginBottom:16}}><Lbl>Progression de rang — {picked.length} valeurs sûres</Lbl><p style={{color:C.mut,fontSize:MQ?12:10,marginTop:-8,marginBottom:12}}>Position dans tes tops à travers le temps (plus haut = mieux classé), de Tout vers tes 50 dernières écoutes. <b style={{color:C.txt}}>Clique une ligne (ou la légende)</b> pour la mettre en avant.</p>
-              {evoSel&&idName[evoSel]&&<div style={{marginBottom:14,padding:"14px 16px",borderRadius:14,background:"linear-gradient(135deg,rgba(30,215,96,0.12),rgba(45,212,191,0.06))",border:`1px solid rgba(30,215,96,0.35)`,boxShadow:"0 8px 26px -10px rgba(30,215,96,0.4)"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}><span style={{color:C.txt,fontWeight:700,fontSize:MQ?17:16,fontFamily:FD,letterSpacing:"-0.01em"}}>{idName[evoSel]}</span><div style={{display:"flex",gap:8}}><a href={`https://open.spotify.com/artist/${evoSel}`} target="_blank" rel="noreferrer" style={{padding:"7px 15px",borderRadius:50,background:`linear-gradient(135deg,${C.grnB},${C.grn})`,color:"#04140A",fontSize:MQ?13:12,fontWeight:700,textDecoration:"none"}}>Ouvrir sur Spotify ↗</a><button onClick={()=>setEvoSel(null)} style={{padding:"7px 13px",borderRadius:50,background:"transparent",border:`1px solid ${C.brd2}`,color:C.mut,fontSize:MQ?13:12}}>✕</button></div></div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>{cols.map(([k,l])=>{const r=rankOf(k,evoSel);return<div key={k} style={{flex:"1 1 90px",minWidth:80,textAlign:"center",padding:"8px 6px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:`1px solid ${C.brd}`}}><div style={{color:C.mut,fontSize:MQ?11:9.5,fontFamily:"monospace",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:4}}>{l}</div><div style={{color:r?C.grnB:C.dim,fontSize:MQ?19:18,fontWeight:700,fontFamily:FD}}>{r?`#${r}`:"—"}</div></div>})}</div>
-              </div>}
               {picked.length>0?<ResponsiveContainer width="100%" height={Math.max(360,Math.min(620,picked.length*26))}><LineChart data={chartData} margin={{left:0,right:20,top:8,bottom:0}}><XAxis dataKey="p" tick={{fill:C.txt,fontSize:MQ?14:12}} axisLine={false} tickLine={false} /><YAxis reversed allowDecimals={false} domain={[1,maxRank]} tick={{fill:C.mut,fontSize:MQ?12:10}} axisLine={false} tickLine={false} width={28} label={{value:"rang",angle:-90,position:"insideLeft",fill:C.mut,fontSize:MQ?12:10}} /><Tooltip contentStyle={{background:C.bg,border:`1px solid ${C.brd2}`,borderRadius:10,color:C.txt,fontSize:MQ?13:11,boxShadow:"0 10px 28px rgba(0,0,0,0.55)"}} itemSorter={i=>i.value==null?9999:i.value} formatter={(v,n)=>[`#${v}`,n]} />{showLegend&&<Legend wrapperStyle={{fontSize:MQ?12:10,color:C.mut,cursor:"pointer"}} iconSize={8} onClick={o=>setEvoSel(s=>s===o.dataKey?null:o.dataKey)} />}{picked.map((pk,i)=>{const sel=evoSel===pk.id,hov=evoHover===pk.id,dim=(evoSel&&!sel)||(!evoSel&&evoHover&&!hov);return<Line key={pk.id} type="monotone" dataKey={pk.id} name={pk.name} stroke={CL[i%CL.length]} strokeWidth={sel?4:hov?3.4:2.2} strokeOpacity={dim?0.13:1} dot={dim?false:{r:sel?4:3}} activeDot={{r:6}} connectNulls style={{cursor:"pointer"}} onClick={()=>setEvoSel(s=>s===pk.id?null:pk.id)} onMouseEnter={()=>setEvoHover(pk.id)} onMouseLeave={()=>setEvoHover(null)} />})}</LineChart></ResponsiveContainer>:<p style={{color:C.mut,fontSize:MQ?14:12,textAlign:"center",padding:20}}>Pas d'artiste commun aux 3 périodes pour tracer la progression.</p>}
+              {evoSel&&idName[evoSel]&&<div style={{marginTop:14,padding:"14px 16px",borderRadius:14,background:"linear-gradient(135deg,rgba(30,215,96,0.12),rgba(45,212,191,0.06))",border:`1px solid rgba(30,215,96,0.35)`,boxShadow:"0 8px 26px -10px rgba(30,215,96,0.4)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}><span style={{color:C.txt,fontWeight:700,fontSize:MQ?17:16,fontFamily:FD,letterSpacing:"-0.01em"}}>{idName[evoSel]}</span><div style={{display:"flex",gap:8}}><a href={`https://open.spotify.com/artist/${evoSel}`} target="_blank" rel="noreferrer" style={{padding:"7px 15px",borderRadius:50,background:`linear-gradient(135deg,${C.grnB},${C.grn})`,color:"#04140A",fontSize:MQ?13:12,fontWeight:700,textDecoration:"none"}}>Ouvrir sur Spotify ↗</a><button onClick={()=>setEvoSel(null)} style={{padding:"7px 13px",borderRadius:50,background:"transparent",border:`1px solid ${C.brd2}`,color:C.mut,fontSize:MQ?13:12}}>✕</button></div></div>
+                <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>{cols.flatMap(([k,l],ci)=>{const r=rankOf(k,evoSel);const chip=<div key={"c"+k} style={{flex:"1 1 78px",minWidth:72,textAlign:"center",padding:"8px 6px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:`1px solid ${C.brd}`}}><div style={{color:C.mut,fontSize:MQ?11:9.5,fontFamily:"monospace",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:4}}>{l}</div><div style={{color:r?C.grnB:C.dim,fontSize:MQ?19:18,fontWeight:700,fontFamily:FD}}>{r?`#${r}`:"—"}</div></div>;if(ci===0)return[chip];const pr=rankOf(cols[ci-1][0],evoSel);const d=(pr&&r)?pr-r:null;const ar=d===null?["·",C.dim]:d>0?["▲",C.grn]:d<0?["▼",C.red]:["=",C.mut];return[<div key={"a"+k} style={{flex:"0 0 auto",color:ar[1],fontSize:MQ?15:13,fontWeight:800}} title={d===null?"":d>0?`+${d} places`:d<0?`${d} places`:"stable"}>{ar[0]}</div>,chip]})}</div>
+                <p style={{color:C.mut,fontSize:MQ?11:9.5,marginTop:10,marginBottom:0}}>▲ progresse · ▼ recule · = stable, d'une période à la suivante (du plus ancien au plus récent).</p>
+              </div>}
             </Card>
-            <Card style={{marginBottom:16}}><Lbl>Hausses & baisses — périodes à comparer</Lbl><p style={{color:C.mut,fontSize:MQ?12:11,marginTop:-6,marginBottom:12}}>Du plus ancien au plus récent : Tout › 6 mois › 4 sem › 50 écoutes.</p><div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}><span style={{color:C.mut,fontSize:MQ?13:12,fontWeight:700,marginRight:2}}>De</span>{EVOPS.map(([k,l])=>{const on=evoFrom===k;return<button key={"f"+k} onClick={()=>setEvoFrom(k)} style={{padding:"7px 13px",borderRadius:50,fontSize:MQ?12.5:11,background:on?`linear-gradient(135deg,${C.grnB},${C.grn})`:"rgba(255,255,255,0.04)",border:`1px solid ${on?"transparent":C.brd}`,color:on?"#04140A":C.mut,cursor:"pointer",fontWeight:on?700:500}}>{l}</button>})}<span style={{color:C.grnB,fontSize:16,fontWeight:700,margin:"0 4px"}}>→</span><span style={{color:C.mut,fontSize:MQ?13:12,fontWeight:700,marginRight:2}}>vers</span>{EVOPS.map(([k,l])=>{const on=evoTo===k;return<button key={"t"+k} onClick={()=>setEvoTo(k)} style={{padding:"7px 13px",borderRadius:50,fontSize:MQ?12.5:11,background:on?`linear-gradient(135deg,${C.acc},#7CDB3F)`:"rgba(255,255,255,0.04)",border:`1px solid ${on?"transparent":C.brd}`,color:on?"#0A1A02":C.mut,cursor:"pointer",fontWeight:on?700:500}}>{l}</button>})}</div>{evoFrom===evoTo&&<p style={{color:C.acc,fontSize:MQ?13:11,marginTop:10,marginBottom:0}}>Choisis deux périodes différentes pour voir les mouvements.</p>}</Card>
+            {(()=>{const fi=EVOPS.findIndex(([k])=>k===evoFrom),ti=EVOPS.findIndex(([k])=>k===evoTo);const bs=(on,dis,acc)=>({padding:"7px 13px",borderRadius:50,fontSize:MQ?12.5:11,background:on?(acc?`linear-gradient(135deg,${C.acc},#7CDB3F)`:`linear-gradient(135deg,${C.grnB},${C.grn})`):"rgba(255,255,255,0.04)",border:`1px solid ${on?"transparent":C.brd}`,color:dis?C.dim:on?(acc?"#0A1A02":"#04140A"):C.mut,cursor:dis?"not-allowed":"pointer",fontWeight:on?700:500,opacity:dis?0.4:1});return<Card style={{marginBottom:16}}><Lbl>Hausses & baisses — périodes à comparer</Lbl><p style={{color:C.mut,fontSize:MQ?12:11,marginTop:-6,marginBottom:12}}>« De » doit toujours être une période plus large que « vers ». Ordre : Tout › 6 mois › 4 sem › 50 écoutes.</p><div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}><span style={{color:C.mut,fontSize:MQ?13:12,fontWeight:700,marginRight:2}}>De</span>{EVOPS.map(([k,l],i)=>{const on=evoFrom===k,dis=i>=ti;return<button key={"f"+k} disabled={dis} onClick={()=>!dis&&setEvoFrom(k)} style={bs(on,dis,false)}>{l}</button>})}<span style={{color:C.grnB,fontSize:16,fontWeight:700,margin:"0 4px"}}>→</span><span style={{color:C.mut,fontSize:MQ?13:12,fontWeight:700,marginRight:2}}>vers</span>{EVOPS.map(([k,l],i)=>{const on=evoTo===k,dis=i<=fi;return<button key={"t"+k} disabled={dis} onClick={()=>!dis&&setEvoTo(k)} style={bs(on,dis,true)}>{l}</button>})}</div></Card>})()}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,marginBottom:16}}>
               <Card><Lbl>📈 En hausse</Lbl><p style={{color:C.mut,fontSize:MQ?11.5:10,marginTop:-8,marginBottom:10}}>Mieux classés en {PNAME[evoTo]} qu'en {PNAME[evoFrom]}.</p>{risers.length?risers.map(m=><div key={m.id} onClick={()=>openEvoArtist(m.name,m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.grn,fontSize:14,width:20}}>↑</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:MQ?13.5:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div><span style={{color:C.grn,fontSize:MQ?12:11,fontFamily:"monospace"}}>+{m.delta}</span></div>):<p style={{color:C.mut,fontSize:MQ?13:11}}>—</p>}</Card>
               <Card><Lbl>📉 En baisse</Lbl><p style={{color:C.mut,fontSize:MQ?11.5:10,marginTop:-8,marginBottom:10}}>Mieux classés en {PNAME[evoFrom]} qu'en {PNAME[evoTo]}.</p>{fallers.length?fallers.map(m=><div key={m.id} onClick={()=>openEvoArtist(m.name,m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.brd}`,cursor:"pointer"}}><span style={{color:C.red,fontSize:14,width:20}}>↓</span><div style={{flex:1,minWidth:0,color:C.txt,fontSize:MQ?13.5:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div><span style={{color:C.red,fontSize:MQ?12:11,fontFamily:"monospace"}}>{m.delta}</span></div>):<p style={{color:C.mut,fontSize:MQ?13:11}}>—</p>}</Card>
@@ -662,22 +682,25 @@ export default function App(){
         <Card><Lbl>Comparer avec un·e ami·e</Lbl><textarea value={friendCode} onChange={e=>setFriendCode(e.target.value)} placeholder="Colle ici le code de ton ami·e…" style={{width:"100%",height:90,resize:"none",padding:12,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:10,color:C.txt,fontSize:MQ?13:11,fontFamily:"monospace",outline:"none",boxSizing:"border-box",wordBreak:"break-all"}} /><button onClick={compare} disabled={!friendCode.trim()} style={{marginTop:10,padding:"10px 20px",background:friendCode.trim()?C.grn:C.brd,border:"none",borderRadius:50,color:friendCode.trim()?"#000":C.mut,fontSize:MQ?14:12,fontWeight:700,cursor:friendCode.trim()?"pointer":"default"}}>Comparer</button>{compatErr&&<p style={{color:C.red,fontSize:MQ?14:12,marginTop:12}}>{compatErr}</p>}{compatRes&&<div style={{marginTop:16}}><div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:48,fontWeight:800,color:C.grn,fontFamily:"monospace",lineHeight:1}}>{compatRes.score}%</div><div style={{color:C.mut,fontSize:MQ?14:12,marginTop:4}}>de compatibilité avec {compatRes.name}</div></div>{compatRes.artists.length>0&&<div style={{marginBottom:12}}><div style={{color:C.acc,fontSize:MQ?13:11,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Artistes en commun ({compatRes.artists.length})</div><div style={{color:C.txt,fontSize:MQ?14:12,lineHeight:1.6}}>{compatRes.artists.join(", ")}</div></div>}{compatRes.genres.length>0&&<div style={{marginBottom:12}}><div style={{color:C.acc,fontSize:MQ?13:11,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Genres en commun</div><div style={{color:C.txt,fontSize:MQ?14:12,lineHeight:1.6}}>{compatRes.genres.join(", ")}</div></div>}{compatRes.countries.length>0&&<div><div style={{color:C.acc,fontSize:MQ?13:11,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Pays en commun</div><div style={{color:C.txt,fontSize:MQ?14:12,lineHeight:1.6}}>{compatRes.countries.join(", ")}</div></div>}{compatRes.artists.length===0&&compatRes.genres.length===0&&compatRes.countries.length===0&&<p style={{color:C.mut,fontSize:MQ?14:12,textAlign:"center"}}>Aucun recouvrement — des goûts très différents !</p>}</div>}</Card>
       </div>}
 
+      {inviteOpen&&<div onClick={()=>setInviteOpen(false)} className="uc-fadein" style={{position:"fixed",inset:0,zIndex:1200,background:"rgba(0,0,0,0.80)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{maxWidth:440,width:"100%",background:"linear-gradient(165deg,rgba(255,255,255,0.05),rgba(255,255,255,0.012))",backgroundColor:C.card,border:`1px solid ${C.brd}`,borderRadius:18,padding:26,boxShadow:"0 30px 80px rgba(0,0,0,0.7)"}}>
+          <div style={{fontSize:22,fontWeight:700,fontFamily:FD,marginBottom:6}}>Inviter un ami 🎧</div>
+          <p style={{color:C.mut,fontSize:MQ?13:12,marginTop:0,marginBottom:16}}>Partage l'appli à quelqu'un pour qu'il découvre ses propres stats Spotify.</p>
+          <div style={{display:"flex",gap:8,marginBottom:16}}><input readOnly value={REDIR} style={{flex:1,minWidth:0,padding:11,background:C.sf,border:`1px solid ${C.brd}`,borderRadius:10,color:C.txt,fontSize:MQ?13:12}} /><button onClick={copyInvite} style={{padding:"11px 16px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${C.grnB},${C.grn})`,color:"#04140A",fontWeight:700,fontSize:MQ?13:12,cursor:"pointer",whiteSpace:"nowrap"}}>Copier</button></div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>{(()=>{const txt=encodeURIComponent(INVITE_TXT);const url=encodeURIComponent(REDIR);const nets=[["WhatsApp",`https://wa.me/?text=${txt}%20${url}`],["X",`https://twitter.com/intent/tweet?text=${txt}&url=${url}`],["Telegram",`https://t.me/share/url?url=${url}&text=${txt}`],["Facebook",`https://www.facebook.com/sharer/sharer.php?u=${url}`],["LinkedIn",`https://www.linkedin.com/sharing/share-offsite/?url=${url}`],["Email",`mailto:?subject=${encodeURIComponent("Your Spotify, Uncovered 🎧")}&body=${txt}%20${url}`]];return nets.map(([n,href])=><a key={n} href={href} target="_blank" rel="noreferrer" style={{padding:"9px 15px",borderRadius:50,border:`1px solid ${C.brd2}`,background:"rgba(255,255,255,0.05)",color:C.txt,fontSize:MQ?13:12,fontWeight:600,textDecoration:"none"}}>{n}</a>)})()}</div>
+          <div style={{textAlign:"center",marginTop:18}}><button onClick={()=>setInviteOpen(false)} style={{padding:"10px 20px",borderRadius:50,border:`1px solid ${C.brd}`,background:"transparent",color:C.mut,fontSize:13,cursor:"pointer"}}>Fermer</button></div>
+        </div>
+      </div>}
       {shareImg&&<div onClick={closeShare} className="uc-fadein" style={{position:"fixed",inset:0,zIndex:1200,background:"rgba(0,0,0,0.80)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <div onClick={e=>e.stopPropagation()} style={{maxWidth:430,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
           <div style={{color:C.mut,fontSize:MQ?13:11,fontFamily:"monospace",letterSpacing:"0.12em",textTransform:"uppercase"}}>Aperçu — {PERIOD_LONG[tr]}</div>
           <img src={shareImg} alt="Aperçu de tes stats" style={{maxWidth:"100%",maxHeight:"70vh",borderRadius:18,boxShadow:"0 30px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(30,215,96,0.28)"}} />
           <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
             <button onClick={downloadShare} style={{padding:"12px 22px",borderRadius:50,border:"none",background:`linear-gradient(135deg,${C.grnB},${C.grn})`,color:"#04140A",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 8px 24px -6px rgba(30,215,96,0.6)"}}>⬇ Télécharger</button>
-            <button onClick={shareNative} style={{padding:"12px 22px",borderRadius:50,border:`1px solid ${C.brd2}`,background:"rgba(255,255,255,0.06)",color:C.txt,fontWeight:700,fontSize:13,cursor:"pointer"}}>↗ Partager (photo)</button>
+            <button onClick={shareNative} style={{padding:"12px 22px",borderRadius:50,border:`1px solid ${C.brd2}`,background:"rgba(255,255,255,0.06)",color:C.txt,fontWeight:700,fontSize:13,cursor:"pointer"}}>↗ Partager la photo</button>
             <button onClick={closeShare} style={{padding:"12px 22px",borderRadius:50,border:`1px solid ${C.brd}`,background:"transparent",color:C.mut,fontWeight:600,fontSize:13,cursor:"pointer"}}>Fermer</button>
           </div>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,marginTop:2}}>
-            <span style={{color:C.mut,fontSize:MQ?12:10}}>Ou partager le lien sur :</span>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-              {(()=>{const txt=encodeURIComponent("Découvre mon analyse d'écoute Spotify 🎧 avec Your Spotify, Uncovered");const url=encodeURIComponent(REDIR);const nets=[["X",`https://twitter.com/intent/tweet?text=${txt}&url=${url}`],["Facebook",`https://www.facebook.com/sharer/sharer.php?u=${url}`],["LinkedIn",`https://www.linkedin.com/sharing/share-offsite/?url=${url}`],["WhatsApp",`https://wa.me/?text=${txt}%20${url}`],["Telegram",`https://t.me/share/url?url=${url}&text=${txt}`]];return nets.map(([n,href])=><a key={n} href={href} target="_blank" rel="noreferrer" style={{padding:"8px 14px",borderRadius:50,border:`1px solid ${C.brd2}`,background:"rgba(255,255,255,0.05)",color:C.txt,fontSize:MQ?12:11,fontWeight:600,textDecoration:"none"}}>{n}</a>)})()}
-            </div>
-            <span style={{color:C.dim,fontSize:MQ?11:9,textAlign:"center",maxWidth:340}}>Instagram / TikTok n'acceptent pas le partage web d'image : utilise « Télécharger » puis publie, ou « Partager (photo) » depuis ton téléphone.</span>
-          </div>
+          <span style={{color:C.dim,fontSize:MQ?11:9.5,textAlign:"center",maxWidth:360,lineHeight:1.5}}>« Partager la photo » ouvre le partage de ton téléphone et envoie l'image directement sur Instagram, X, TikTok, WhatsApp… Sur ordinateur, télécharge l'image puis publie-la (les réseaux n'acceptent pas l'envoi d'image par simple lien web).</span>
         </div>
       </div>}
 
