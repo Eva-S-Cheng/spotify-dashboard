@@ -351,7 +351,7 @@ export default function App(){
     const sc=document.createElement("canvas");sc.width=W;sc.height=PH*5;const scx=sc.getContext("2d");
     const meas=S.map(fn=>({fn,h:fn(scx,200)-200}));
     const headerH=100,avail=PH-FOOTER,contentAvail=avail-headerH;
-    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);const numPages=Math.max(1,Math.ceil(totalC/contentAvail));const target=totalC/numPages;
+    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);let trial=1,tu=0;meas.forEach(m=>{if(tu>0&&tu+m.h+PAD>contentAvail){trial++;tu=0}tu+=m.h+PAD});const numPages=Math.max(1,trial);const target=totalC/numPages;
     const pages=[[]];let used=0;
     meas.forEach(m=>{const cur=pages[pages.length-1];if(cur.length>0&&(used+m.h+PAD>contentAvail||(used+(m.h+PAD)*0.5>target&&pages.length<numPages))){pages.push([]);used=0}pages[pages.length-1].push(m);used+=m.h+PAD});
     const canvases=pages.map((ps,pi)=>{const cv=document.createElement("canvas");cv.width=W;cv.height=PH;const x=cv.getContext("2d");x.fillStyle="#0C0D10";x.fillRect(0,0,W,PH);let y=drawHeader(x,pi+1,pages.length);const sumH=ps.reduce((s,m)=>s+m.h,0);const gap=Math.max(PAD,Math.min(200,(PH-FOOTER-y-sumH)/(ps.length+1)));ps.forEach(m=>{y+=gap;y=m.fn(x,y)});x.fillStyle="#555";x.font="18px monospace";x.textAlign="left";x.fillText("eva-s-cheng.github.io/spotify-dashboard",70,PH-24);return cv});
@@ -401,7 +401,7 @@ export default function App(){
     const sc=document.createElement("canvas");sc.width=W;sc.height=PH*5;const scx=sc.getContext("2d");
     const meas=S.map(fn=>({fn,h:fn(scx,200)-200}));
     const headerH=100,avail=PH-FOOTER,contentAvail=avail-headerH;
-    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);const numPages=Math.max(1,Math.ceil(totalC/contentAvail));const target=totalC/numPages;
+    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);let trial=1,tu=0;meas.forEach(m=>{if(tu>0&&tu+m.h+PAD>contentAvail){trial++;tu=0}tu+=m.h+PAD});const numPages=Math.max(1,trial);const target=totalC/numPages;
     const pages=[[]];let used=0;
     meas.forEach(m=>{const cur=pages[pages.length-1];if(cur.length>0&&(used+m.h+PAD>contentAvail||(used+(m.h+PAD)*0.5>target&&pages.length<numPages))){pages.push([]);used=0}pages[pages.length-1].push(m);used+=m.h+PAD});
     const canvases=pages.map((ps,pi)=>{const cv=document.createElement("canvas");cv.width=W;cv.height=PH;const x=cv.getContext("2d");x.fillStyle="#0C0D10";x.fillRect(0,0,W,PH);let y=drawHeader(x,pi+1,pages.length);const sumH=ps.reduce((s,m)=>s+m.h,0);const gap=Math.max(PAD,Math.min(200,(PH-FOOTER-y-sumH)/(ps.length+1)));ps.forEach(m=>{y+=gap;y=m.fn(x,y)});x.fillStyle="#555";x.font="18px monospace";x.textAlign="left";x.fillText("eva-s-cheng.github.io/spotify-dashboard",70,PH-24);return cv});
@@ -435,7 +435,7 @@ export default function App(){
     const sc=document.createElement("canvas");sc.width=W;sc.height=PH*5;const scx=sc.getContext("2d");
     const meas=S.map(fn=>({fn,h:fn(scx,200)-200}));
     const headerH=100,avail=PH-FOOTER,contentAvail=avail-headerH;
-    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);const numPages=Math.max(1,Math.ceil(totalC/contentAvail));const target=totalC/numPages;
+    const totalC=meas.reduce((s,m)=>s+m.h+PAD,0);let trial=1,tu=0;meas.forEach(m=>{if(tu>0&&tu+m.h+PAD>contentAvail){trial++;tu=0}tu+=m.h+PAD});const numPages=Math.max(1,trial);const target=totalC/numPages;
     const pages=[[]];let used=0;
     meas.forEach(m=>{const cur=pages[pages.length-1];if(cur.length>0&&(used+m.h+PAD>contentAvail||(used+(m.h+PAD)*0.5>target&&pages.length<numPages))){pages.push([]);used=0}pages[pages.length-1].push(m);used+=m.h+PAD});
     const canvases=pages.map((ps,pi)=>{const cv=document.createElement("canvas");cv.width=W;cv.height=PH;const x=cv.getContext("2d");x.fillStyle="#0C0D10";x.fillRect(0,0,W,PH);let y=drawHeader(x,pi+1,pages.length);const sumH=ps.reduce((s,m)=>s+m.h,0);const gap=Math.max(PAD,Math.min(200,(PH-FOOTER-y-sumH)/(ps.length+1)));ps.forEach(m=>{y+=gap;y=m.fn(x,y)});x.fillStyle="#555";x.font="18px monospace";x.textAlign="left";x.fillText("eva-s-cheng.github.io/spotify-dashboard",70,PH-24);return cv});
