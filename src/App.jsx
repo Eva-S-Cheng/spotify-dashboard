@@ -12,7 +12,7 @@ const WORLD_TOPO = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.js
 let rlUntil=0;// verrou global de rate-limit
 function genV(n=128){const c="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,b=>c[b%c.length]).join("")}
 async function genC(v){const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return btoa(String.fromCharCode(...new Uint8Array(d))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"")}
-async function sp(e,t,o={},retries=2){const w=rlUntil-Date.now();if(w>0)await new Promise(r=>setTimeout(r,w));const r=await fetch(`https://api.spotify.com/v1${e}`,{headers:{Authorization:`Bearer ${t}`,"Content-Type":"application/json"},...o});if(r.status===204)return null;if(r.status===429){const ra=Math.min(parseInt(r.headers.get("Retry-After")||"5",10),60);rlUntil=Date.now()+(ra+1)*1000;if(retries>0){await new Promise(res=>setTimeout(res,(ra+1)*1000));return sp(e,t,o,retries-1)}const err=new Error("429");err.status=429;throw err}if(!r.ok){const err=new Error(`${r.status}`);err.status=r.status;throw err}return r.json()}
+async function sp(e,t,o={},retries=2){const w=rlUntil-Date.now();if(w>0)await new Promise(r=>setTimeout(r,w));const r=await fetch(`https://api.spotify.com/v1${e}`,{headers:{Authorization:`Bearer ${t}`,"Content-Type":"application/json"},...o});if(r.status===204)return null;if(r.status===429){const ra=Math.min(parseInt(r.headers.get("Retry-After")||"10",10),300);rlUntil=Date.now()+(ra+1)*1000;if(retries>0){await new Promise(res=>setTimeout(res,(ra+1)*1000));return sp(e,t,o,retries-1)}const err=new Error("429");err.status=429;throw err}if(!r.ok){const err=new Error(`${r.status}`);err.status=r.status;throw err}return r.json()}
 
 // Title Case par mot (affichage uniquement)
 function tc(s){return String(s).toLowerCase().replace(/(^|[\s\-/&])([a-z])/g,(m,p1,p2)=>p1+p2.toUpperCase())}
@@ -247,7 +247,7 @@ export default function App(){
 
   useEffect(()=>{if(!tok)return;
     const f=async()=>{
-      if(document.hidden)return;
+      if(document.hidden||Date.now()<rlUntil)return;
       try{const p=await sp("/me/player",tok,{},0);setPl(p);
         const uri=p?.context?.uri||null;
         if(uri!==lastCtx.current){lastCtx.current=uri;
@@ -260,7 +260,7 @@ export default function App(){
       }catch{}
       if(tabRef.current==="player"){sp("/me/player/devices",tok,{},0).then(d=>setDevs(d?.devices||[])).catch(()=>{})}
     };
-    f();pi.current=setInterval(f,5000);
+    f();pi.current=setInterval(f,15000);
     const onVis=()=>{if(!document.hidden)f()};document.addEventListener("visibilitychange",onVis);
     return()=>{clearInterval(pi.current);document.removeEventListener("visibilitychange",onVis)}},[tok]);
   useEffect(()=>{if(!pl?.is_playing||!pl?.item)return;const id=setInterval(()=>setPl(p=>(p&&p.is_playing&&p.item)?{...p,progress_ms:Math.min((p.progress_ms||0)+1000,p.item.duration_ms||0)}:p),1000);return()=>clearInterval(id)},[pl?.is_playing,pl?.item?.id]);
