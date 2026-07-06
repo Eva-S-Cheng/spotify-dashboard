@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script>
+      const search = window.location.search;
+      window.location.replace(
+        window.location.origin + '/spotify-dashboard/' +
+        (search ? search : '')
+      );
+    </script>
+  </head>
+</html>
