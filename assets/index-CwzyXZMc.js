@@ -89,6 +89,7 @@ body{margin:0;min-height:100vh;font-family:'Inter',-apple-system,BlinkMacSystemF
 .uc-langhover-menu{display:none;position:absolute;top:100%;left:0;padding-top:6px;z-index:1400}
 .uc-langhover-menu button{font-size:11px!important;padding:7px 10px!important}
 .uc-langhover:hover .uc-langhover-menu{display:block}
+@media (min-width:1200px){.uc-langhover-menu button{font-size:13px!important;padding:9px 12px!important}}
 .uc-card{transition:transform .2s cubic-bezier(.2,.7,.2,1),box-shadow .2s ease,border-color .2s ease}
 .uc-card.click{cursor:pointer}
 .uc-card.click:hover{transform:translateY(-3px);border-color:rgba(30,215,96,0.42);box-shadow:0 18px 46px rgba(0,0,0,0.55),0 0 0 1px rgba(30,215,96,0.22),0 0 34px -8px rgba(30,215,96,0.45)}
