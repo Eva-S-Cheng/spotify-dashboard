@@ -86,7 +86,8 @@ body{margin:0;min-height:100vh;font-family:'Inter',-apple-system,BlinkMacSystemF
 .uc-no-scroll{overflow:hidden!important;touch-action:none;position:fixed;width:100%;left:0;right:0}
 .uc-fs-overlay{position:fixed;inset:0;z-index:100000;background:#000;width:100vw;height:100dvh;height:100svh;overflow:hidden;-webkit-tap-highlight-color:transparent}
 .uc-langhover{position:relative;display:inline-block}
-.uc-langhover-menu{display:none;position:absolute;top:100%;right:0;padding-top:6px;z-index:1400}
+.uc-langhover-menu{display:none;position:absolute;top:100%;left:0;padding-top:6px;z-index:1400}
+.uc-langhover-menu button{font-size:11px!important;padding:7px 10px!important}
 .uc-langhover:hover .uc-langhover-menu{display:block}
 .uc-card{transition:transform .2s cubic-bezier(.2,.7,.2,1),box-shadow .2s ease,border-color .2s ease}
 .uc-card.click{cursor:pointer}
