@@ -35,11 +35,12 @@
     <script>
       (function () {
         const m = window.location.hash.match(/^#compat=(.+)$/i);
-        if (m) {
-          try { sessionStorage.setItem('sp_compat_pending', decodeURIComponent(m[1])); }
-          catch (e) { try { sessionStorage.setItem('sp_compat_pending', m[1]); } catch (_e) {} }
-          try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_e) {}
-        }
+        if (!m) return;
+        var raw = m[1];
+        try { raw = decodeURIComponent(raw); } catch (e) {}
+        try { sessionStorage.setItem('sp_compat_pending', raw); } catch (e) {}
+        try { localStorage.setItem('sp_compat_pending_ls', JSON.stringify({ raw: raw, ts: Date.now() })); } catch (e) {}
+        try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
       })();
       const p = new URLSearchParams(window.location.search);
       const code = p.get('code');
@@ -48,7 +49,7 @@
         window.history.replaceState({}, '', window.location.pathname);
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-EsGeYiUk.js"></script>
+    <script type="module" crossorigin src="/assets/index-VamVQgr0.js"></script>
   </head>
   <body>
     <div id="root"></div>
