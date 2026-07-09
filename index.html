@@ -33,6 +33,14 @@
     <meta name="twitter:image" content="https://sound-print.fr/thumbnail_sound_print-en.png" />
 
     <script>
+      (function () {
+        const m = window.location.hash.match(/^#compat=(.+)$/i);
+        if (m) {
+          try { sessionStorage.setItem('sp_compat_pending', decodeURIComponent(m[1])); }
+          catch (e) { try { sessionStorage.setItem('sp_compat_pending', m[1]); } catch (_e) {} }
+          try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_e) {}
+        }
+      })();
       const p = new URLSearchParams(window.location.search);
       const code = p.get('code');
       if (code) {
@@ -40,7 +48,7 @@
         window.history.replaceState({}, '', window.location.pathname);
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-CeO7jzCE.js"></script>
+    <script type="module" crossorigin src="/assets/index-EsGeYiUk.js"></script>
   </head>
   <body>
     <div id="root"></div>
