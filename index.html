@@ -34,6 +34,17 @@
 
     <script>
       (function () {
+        if (window.location.hostname === "www.sound-print.fr") {
+          window.location.replace(
+            "https://sound-print.fr" +
+            window.location.pathname +
+            window.location.search +
+            window.location.hash
+          );
+          return;
+        }
+      })();
+      (function () {
         const m = window.location.hash.match(/^#compat=(.+)$/i);
         if (!m) return;
         var raw = m[1];
@@ -49,7 +60,7 @@
         window.history.replaceState({}, '', window.location.pathname);
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-CkqJWQq3.js"></script>
+    <script type="module" crossorigin src="/assets/index-CX8qLp1c.js"></script>
   </head>
   <body>
     <div id="root"></div>
